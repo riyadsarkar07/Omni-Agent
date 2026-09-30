@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { DatabaseStore, DEMO_PRESET_KEY } from '../db/store';
 import { hashApiKey, checkRateLimit } from './api-key';
 import { Project, ApiKey } from '../types';
+import { getAdminEmail, getAdminSecret, isProduction } from '../config';
 
 export interface AuthContext {
   project: Project;
@@ -23,22 +24,25 @@ export async function authenticateApiRequest(
 
   // 2. Check if request is authenticated via session cookie or admin secret
   const sessionToken = req.cookies.get('omniagent_session')?.value;
-  const adminSecret = process.env.ADMIN_SECRET || process.env.API_KEY_HASH_SECRET || 'omniagent-secure-salt-2026';
+  const adminSecret = getAdminSecret();
   const providedAdminSecret = req.headers.get('x-admin-secret');
+  const configuredAdminEmail = getAdminEmail();
 
   let sessionUser = sessionToken ? await DatabaseStore.verifySessionToken(sessionToken) : null;
   const defaultProject = (await DatabaseStore.listProjects())[0];
 
   if (sessionUser && defaultProject) {
+    const isConfiguredAdmin =
+      Boolean(configuredAdminEmail) && sessionUser.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
     return {
       auth: {
         project: defaultProject,
-        isAdmin: sessionUser.role === 'admin' || sessionUser.email === (process.env.ADMIN_EMAIL || 'admin@omniagent.io'),
+        isAdmin: sessionUser.role === 'admin' || isConfiguredAdmin,
       },
     };
   }
 
-  if (providedAdminSecret && providedAdminSecret === adminSecret && defaultProject) {
+  if (adminSecret && providedAdminSecret && providedAdminSecret === adminSecret && defaultProject) {
     return {
       auth: {
         project: defaultProject,
@@ -65,8 +69,7 @@ export async function authenticateApiRequest(
   const keyHash = hashApiKey(providedToken);
   let apiKey = await DatabaseStore.getApiKeyByHash(keyHash);
 
-  // Fallback demo key check
-  if (!apiKey && providedToken === DEMO_PRESET_KEY) {
+  if (!apiKey && !isProduction() && providedToken === DEMO_PRESET_KEY) {
     const keys = await DatabaseStore.listApiKeys();
     apiKey = keys.find((k) => k.id === 'key_demo_default') || null;
   }

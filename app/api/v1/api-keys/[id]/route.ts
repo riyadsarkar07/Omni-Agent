@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { getAdminEmail } from '@/lib/config';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -24,7 +25,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   await DatabaseStore.logAudit({
     project_id: existingKey.project_id,
-    user_email: 'admin@omniagent.io',
+    user_email: getAdminEmail() || 'system',
     action: 'API_KEY_REVOKED',
     resource_type: 'api_key',
     resource_id: id,

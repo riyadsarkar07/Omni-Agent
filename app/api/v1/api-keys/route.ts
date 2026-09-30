@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { generateApiKey } from '@/lib/auth/api-key';
 import { DatabaseStore } from '@/lib/db/store';
+import { getAdminEmail } from '@/lib/config';
 
 const createKeySchema = z.object({
   name: z.string().min(2, 'Key name must be at least 2 characters').max(60),
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
 
     await DatabaseStore.logAudit({
       project_id: targetProjectId,
-      user_email: 'admin@omniagent.io',
+      user_email: getAdminEmail() || 'system',
       action: 'API_KEY_CREATED',
       resource_type: 'api_key',
       resource_id: savedKey.id,

@@ -2,10 +2,13 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession } from '../types';
 import { AIProvider } from '../providers/types';
 import { hashApiKey } from '../auth/api-key';
+import { getAdminEmail, getAdminPassword, isProduction } from '../config';
 import crypto from 'crypto';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseKey = isProduction()
+  ? process.env.SUPABASE_SERVICE_ROLE_KEY
+  : process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export const supabase: SupabaseClient | null =
   supabaseUrl && supabaseKey
@@ -40,7 +43,13 @@ interface MemoryStore {
 }
 
 const DEMO_API_KEY_RAW = 'ua_live_demo_development_key_2026';
-const DEMO_KEY_HASH = hashApiKey(DEMO_API_KEY_RAW);
+const DEMO_KEY_HASH = (() => {
+  try {
+    return hashApiKey(DEMO_API_KEY_RAW);
+  } catch {
+    return '';
+  }
+})();
 
 const initialProjects: Project[] = [
   {
@@ -159,7 +168,13 @@ const initialApiKeys: ApiKey[] = [
     project_id: 'proj_default_core',
     name: 'Local Development & Staging',
     key_prefix: 'ua_test_9a12...8e41',
-    key_hash: hashApiKey('ua_test_9a12b4c8d7e6f5a3b2c18e41'),
+    key_hash: (() => {
+      try {
+        return hashApiKey('ua_test_9a12b4c8d7e6f5a3b2c18e41');
+      } catch {
+        return '';
+      }
+    })(),
     environment: 'development',
     rate_limit_rpm: 60,
     last_used_at: new Date(Date.now() - 3600000 * 4).toISOString(),
@@ -196,22 +211,28 @@ const initialUsageLogs: UsageLog[] = Array.from({ length: 42 }).map((_, i) => {
   };
 });
 
-// Default admin user seed
-const defaultAdminSalt = crypto.randomBytes(16).toString('hex');
-const defaultAdminPassword = process.env.ADMIN_PASSWORD || 'OmniAgentSecureAdmin2026!';
-const defaultAdminHash = crypto.scryptSync(defaultAdminPassword, defaultAdminSalt, 64).toString('hex');
+function buildInitialUsers(): StoredUser[] {
+  const adminEmail = getAdminEmail();
+  const adminPassword = getAdminPassword();
+  if (!adminEmail || !adminPassword) {
+    return [];
+  }
+  const salt = crypto.randomBytes(16).toString('hex');
+  const password_hash = crypto.scryptSync(adminPassword, salt, 64).toString('hex');
+  return [
+    {
+      id: 'user_admin_01',
+      email: adminEmail.toLowerCase(),
+      full_name: 'Platform Administrator',
+      role: 'admin',
+      password_hash,
+      salt,
+      created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
+    },
+  ];
+}
 
-const initialUsers: StoredUser[] = [
-  {
-    id: 'user_admin_01',
-    email: process.env.ADMIN_EMAIL || 'admin@omniagent.io',
-    full_name: 'Platform Administrator',
-    role: 'admin',
-    password_hash: defaultAdminHash,
-    salt: defaultAdminSalt,
-    created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
-  },
-];
+const initialUsers: StoredUser[] = buildInitialUsers();
 
 const globalForStore = globalThis as unknown as {
   memoryStore?: MemoryStore;
@@ -231,7 +252,7 @@ if (!globalForStore.memoryStore) {
       {
         id: 'audit_init_1',
         project_id: 'proj_default_core',
-        user_email: 'admin@omniagent.io',
+        user_email: getAdminEmail() || 'system',
         action: 'PROJECT_INITIALIZED',
         resource_type: 'project',
         resource_id: 'proj_default_core',
@@ -308,18 +329,93 @@ if (!globalForStore.memoryStore) {
         errorRate: 0,
         created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
         updated_at: new Date().toISOString()
+      },
+      {
+        id: 'conduit',
+        name: 'Conduit',
+        protocol: 'openai',
+        baseUrl: '',
+        apiKey: '',
+        enabled: false,
+        defaultModel: '',
+        models: [],
+        capabilities: ['TEXT', 'STREAMING', 'TOOL_CALLING'],
+        connectionStatus: 'Untested',
+        lastTested: null,
+        latencyMs: null,
+        usageCount: 0,
+        errorRate: 0,
+        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      {
+        id: 'openai-compatible',
+        name: 'OpenAI-Compatible Provider',
+        protocol: 'openai',
+        baseUrl: '',
+        apiKey: '',
+        enabled: false,
+        defaultModel: '',
+        models: [],
+        capabilities: ['TEXT', 'STREAMING', 'TOOL_CALLING', 'FUNCTION_CALLING'],
+        connectionStatus: 'Untested',
+        lastTested: null,
+        latencyMs: null,
+        usageCount: 0,
+        errorRate: 0,
+        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      {
+        id: 'anthropic-compatible',
+        name: 'Anthropic-Compatible Provider',
+        protocol: 'anthropic',
+        baseUrl: '',
+        apiKey: '',
+        enabled: false,
+        defaultModel: '',
+        models: [],
+        capabilities: ['TEXT', 'STREAMING'],
+        connectionStatus: 'Untested',
+        lastTested: null,
+        latencyMs: null,
+        usageCount: 0,
+        errorRate: 0,
+        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      {
+        id: 'custom-http',
+        name: 'Custom HTTP Provider',
+        protocol: 'custom',
+        baseUrl: '',
+        apiKey: '',
+        enabled: false,
+        defaultModel: '',
+        models: [],
+        capabilities: ['TEXT', 'STREAMING'],
+        connectionStatus: 'Untested',
+        lastTested: null,
+        latencyMs: null,
+        usageCount: 0,
+        errorRate: 0,
+        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+        updated_at: new Date().toISOString()
       }
     ]
   };
 }
 
-const memoryStore = globalForStore.memoryStore;
+const memoryStore = globalForStore.memoryStore!;
 
 export const DEMO_PRESET_KEY = DEMO_API_KEY_RAW;
 
 export class DatabaseStore {
   // Check Supabase connection state
   static isSupabaseConfigured(): boolean {
+    if (isProduction()) {
+      return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+    }
     return Boolean(
       process.env.NEXT_PUBLIC_SUPABASE_URL &&
         (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
@@ -439,7 +535,9 @@ export class DatabaseStore {
         }
       ];
 
-      await supabase.from('api_keys').upsert(seedKeys, { onConflict: 'id' });
+      if (!isProduction()) {
+        await supabase.from('api_keys').upsert(seedKeys, { onConflict: 'id' });
+      }
       console.log('Seeding successful.');
     } catch (err) {
       console.error('Failed to seed Supabase database:', err);
@@ -462,7 +560,8 @@ export class DatabaseStore {
         if (error) throw error;
         if (!data.user) throw new Error('Registration failed.');
 
-        const isSystemAdmin = email.toLowerCase() === (process.env.ADMIN_EMAIL || 'admin@omniagent.io').toLowerCase();
+        const configuredAdminEmail = getAdminEmail();
+        const isSystemAdmin = Boolean(configuredAdminEmail) && email.toLowerCase() === configuredAdminEmail!.toLowerCase();
         const role = isSystemAdmin ? 'admin' : 'developer';
 
         // Upsert profile record
@@ -507,7 +606,8 @@ export class DatabaseStore {
     const salt = crypto.randomBytes(16).toString('hex');
     const password_hash = crypto.scryptSync(password, salt, 64).toString('hex');
 
-    const isSystemAdmin = email.toLowerCase() === (process.env.ADMIN_EMAIL || 'admin@omniagent.io').toLowerCase();
+    const configuredAdminEmail = getAdminEmail();
+    const isSystemAdmin = Boolean(configuredAdminEmail) && email.toLowerCase() === configuredAdminEmail!.toLowerCase();
     const newUser: StoredUser = {
       id: `usr_${crypto.randomBytes(6).toString('hex')}`,
       email: email.toLowerCase(),
@@ -548,7 +648,8 @@ export class DatabaseStore {
         if (!data.user || !data.session) throw new Error('Invalid credentials.');
 
         let { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).maybeSingle();
-        const isSystemAdmin = email.toLowerCase() === (process.env.ADMIN_EMAIL || 'admin@omniagent.io').toLowerCase();
+        const configuredAdminEmail = getAdminEmail();
+        const isSystemAdmin = Boolean(configuredAdminEmail) && email.toLowerCase() === configuredAdminEmail!.toLowerCase();
         const role = isSystemAdmin ? 'admin' : profile?.role || 'developer';
 
         if (!profile) {
@@ -617,7 +718,8 @@ export class DatabaseStore {
         if (error || !user) return null;
 
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        const isSystemAdmin = user.email?.toLowerCase() === (process.env.ADMIN_EMAIL || 'admin@omniagent.io').toLowerCase();
+        const configuredAdminEmail = getAdminEmail();
+        const isSystemAdmin = Boolean(configuredAdminEmail) && user.email?.toLowerCase() === configuredAdminEmail!.toLowerCase();
         
         return {
           id: user.id,

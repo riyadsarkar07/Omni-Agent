@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { getAdminEmail } from '@/lib/config';
 
 const updateProjectSchema = z.object({
   name: z.string().min(2).max(60).optional(),
@@ -39,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await DatabaseStore.logAudit({
       project_id: id,
-      user_email: 'admin@omniagent.io',
+      user_email: getAdminEmail() || 'system',
       action: 'PROJECT_UPDATED',
       resource_type: 'project',
       resource_id: id,

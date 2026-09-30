@@ -1,6 +1,16 @@
 import crypto from 'crypto';
+import { getApiKeyHashSecret, isProduction } from '../config';
 
-const SALT = process.env.API_KEY_HASH_SECRET || 'omniagent-secure-salt-2026';
+function resolveHashSecret(): string {
+  const configured = getApiKeyHashSecret();
+  if (configured) {
+    return configured;
+  }
+  if (isProduction()) {
+    throw new Error('Missing required production secret: API_KEY_HASH_SECRET');
+  }
+  return 'omniagent-dev-only-not-for-production';
+}
 
 export interface GeneratedKeyResult {
   rawKey: string;
@@ -30,7 +40,7 @@ export function generateApiKey(environment: 'production' | 'development' = 'prod
  * Computes deterministic SHA-256 hash with salt for secure storage & fast lookup.
  */
 export function hashApiKey(rawKey: string): string {
-  return crypto.createHmac('sha256', SALT).update(rawKey.trim()).digest('hex');
+  return crypto.createHmac('sha256', resolveHashSecret()).update(rawKey.trim()).digest('hex');
 }
 
 /**
