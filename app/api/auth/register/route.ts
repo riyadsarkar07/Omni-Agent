@@ -1,0 +1,53 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { DatabaseStore } from '@/lib/db/store';
+import { applyCorsHeaders } from '@/lib/auth/middleware';
+
+const registerSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  fullName: z.string().optional(),
+});
+
+export async function OPTIONS() {
+  return applyCorsHeaders(new NextResponse(null, { status: 204 }));
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const parse = registerSchema.safeParse(body);
+    if (!parse.success) {
+      return applyCorsHeaders(
+        NextResponse.json(
+          { error: 'Validation Error', details: parse.error.flatten().fieldErrors },
+          { status: 400 }
+        )
+      );
+    }
+
+    const { email, password, fullName } = parse.data;
+
+    const session = await DatabaseStore.registerUser(email, password, fullName);
+
+    const res = NextResponse.json({
+      message: 'Registration successful',
+      user: session.user,
+      session,
+    });
+
+    res.cookies.set('omniagent_session', session.token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+    });
+
+    return applyCorsHeaders(res);
+  } catch (err: unknown) {
+    return applyCorsHeaders(
+      NextResponse.json({ error: (err as Error).message || 'Registration failed' }, { status: 400 })
+    );
+  }
+}

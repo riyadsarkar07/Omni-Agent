@@ -1,0 +1,6 @@
+{
+  "name": "OmniAgent AI Platform",
+  "description": "Universal AI Agent Platform with secure REST API, key management, multi-project agents, tool calling, and admin playground powered by Google Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
