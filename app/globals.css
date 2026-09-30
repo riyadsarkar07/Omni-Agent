@@ -1,29 +1,56 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@theme {
+  /* You can add theme overrides here if needed */
+}
+
 :root {
   color-scheme: dark;
+  --bg-main: #030712; /* deeper dark, almost black */
+  --bg-panel: #09090b; /* zinc-950 */
 }
 
 body {
-  background-color: #0b0f17;
-  color: #f1f5f9;
+  background-color: var(--bg-main);
+  color: #f8fafc;
+  font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom sleek scrollbar for playground and tables */
+/* Custom sleek scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
-  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.25);
 }
 
+/* Glassmorphism utilities */
+.glass-panel {
+  background: rgba(9, 9, 11, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: linear-gradient(145deg, rgba(24, 24, 27, 0.6) 0%, rgba(9, 9, 11, 0.8) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
+}
+
+.glow-text {
+  text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
+}

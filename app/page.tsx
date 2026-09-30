@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Project, Agent, ApiKey, UsageLog, User } from '@/lib/types';
 import { Sidebar, DashboardTab } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
-import { AuthModal } from '@/components/dashboard/AuthModal';
+import { AuthView } from '@/components/auth/AuthView';
 import { OverviewView } from '@/components/dashboard/OverviewView';
 import { ProjectsView } from '@/components/dashboard/ProjectsView';
 import { AgentsView } from '@/components/dashboard/AgentsView';
@@ -17,9 +17,17 @@ import { AnalyticsView } from '@/components/dashboard/AnalyticsView';
 import { DocsView } from '@/components/dashboard/DocsView';
 import { SettingsView } from '@/components/dashboard/SettingsView';
 import { ProvidersView } from '@/components/dashboard/ProvidersView';
+import {
+  SystemOverviewView,
+  UserDirectoryView,
+  SystemHealthView,
+  SystemAuditView
+} from '@/components/dashboard/admin';
+
 
 export default function DashboardPage() {
   const [currentTab, setCurrentTab] = useState<DashboardTab>('overview');
+  const [isAdminMode, setIsAdminMode] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
@@ -168,8 +176,13 @@ export default function DashboardPage() {
     setActiveProject(project);
   };
 
+
+  if (!isLoading && !currentUser) {
+    return <AuthView onLoginSuccess={(u) => { setCurrentUser(u); refreshData(); }} />;
+  }
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
+    <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg-main)] font-sans text-slate-100 antialiased">
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
@@ -177,12 +190,15 @@ export default function DashboardPage() {
         agentCount={agents.length}
         projectCount={projects.length}
         apiKeyCount={apiKeys.length}
+        currentUser={currentUser}
+        isAdminMode={isAdminMode}
+        onToggleAdminMode={setIsAdminMode}
         isOpen={isMobileSidebarOpen}
         onClose={() => setIsMobileSidebarOpen(false)}
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <Header
           projects={projects}
           activeProject={activeProject}
@@ -192,107 +208,110 @@ export default function DashboardPage() {
           currentUser={currentUser}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
           onMenuToggle={() => setIsMobileSidebarOpen(true)}
+          isAdminMode={isAdminMode}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 scroll-smooth">
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-8 h-8 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin" />
-                <span className="text-xs text-slate-400 font-medium">
-                  Connecting to OmniAgent Engine...
+                <span className="text-xs text-slate-500 font-semibold tracking-wider">
+                  Initialising Intelligence...
                 </span>
               </div>
             </div>
           ) : (
-            <>
-              {currentTab === 'overview' && (
-                <OverviewView
-                  projects={projects}
-                  agents={agents}
-                  apiKeys={apiKeys}
-                  usageSummary={usageSummary}
-                  onNavigate={(tab) => setCurrentTab(tab)}
-                  onOpenCreateAgent={() => setCurrentTab('agents')}
-                  onOpenCreateKey={() => setCurrentTab('api-keys')}
-                />
-              )}
+            <div className="animate-in fade-in duration-500">
+              {isAdminMode ? (
+                <>
+                  {currentTab === 'admin-overview' && <SystemOverviewView />}
+                  {currentTab === 'admin-users' && <UserDirectoryView />}
+                  {currentTab === 'providers' && <ProvidersView />}
+                  {currentTab === 'admin-health' && <SystemHealthView />}
+                  {currentTab === 'analytics' && <AnalyticsView usageSummary={usageSummary} activeProject={activeProject} />}
+                  {currentTab === 'admin-security' && <SystemAuditView />}
+                  {currentTab === 'settings' && <SettingsView isSupabaseConnected={isSupabaseConnected} />}
+                </>
+              ) : (
+                <>
+                  {currentTab === 'overview' && (
+                    <OverviewView
+                      projects={projects}
+                      agents={agents}
+                      apiKeys={apiKeys}
+                      usageSummary={usageSummary}
+                      onNavigate={(tab) => setCurrentTab(tab)}
+                      onOpenCreateAgent={() => setCurrentTab('agents')}
+                      onOpenCreateKey={() => setCurrentTab('api-keys')}
+                    />
+                  )}
 
-              {currentTab === 'projects' && (
-                <ProjectsView
-                  projects={projects}
-                  agents={agents}
-                  apiKeys={apiKeys}
-                  activeProject={activeProject}
-                  onSelectProject={handleSelectProject}
-                  onRefresh={refreshData}
-                />
-              )}
+                  {currentTab === 'projects' && (
+                    <ProjectsView
+                      projects={projects}
+                      agents={agents}
+                      apiKeys={apiKeys}
+                      activeProject={activeProject}
+                      onSelectProject={handleSelectProject}
+                      onRefresh={refreshData}
+                    />
+                  )}
 
-              {currentTab === 'agents' && (
-                <AgentsView
-                  agents={agents}
-                  projects={projects}
-                  activeProject={activeProject}
-                  onRefresh={refreshData}
-                  onTestInPlayground={(_agentId) => {
-                    setCurrentTab('playground');
-                  }}
-                />
-              )}
+                  {currentTab === 'agents' && (
+                    <AgentsView
+                      agents={agents}
+                      projects={projects}
+                      activeProject={activeProject}
+                      onRefresh={refreshData}
+                      onTestInPlayground={(_agentId) => {
+                        setCurrentTab('playground');
+                      }}
+                    />
+                  )}
 
-              {currentTab === 'playground' && (
-                <PlaygroundView
-                  agents={agents}
-                  activeProject={activeProject}
-                  onRefreshAgents={refreshData}
-                />
-              )}
+                  {currentTab === 'playground' && (
+                    <PlaygroundView
+                      agents={agents}
+                      activeProject={activeProject}
+                      onRefreshAgents={refreshData}
+                    />
+                  )}
 
-              {currentTab === 'api-keys' && (
-                <ApiKeysView
-                  apiKeys={apiKeys}
-                  projects={projects}
-                  activeProject={activeProject}
-                  onRefresh={refreshData}
-                />
-              )}
+                  {currentTab === 'api-keys' && (
+                    <ApiKeysView
+                      apiKeys={apiKeys}
+                      projects={projects}
+                      activeProject={activeProject}
+                      onRefresh={refreshData}
+                    />
+                  )}
 
-              {currentTab === 'conversations' && (
-                <ConversationsView activeProject={activeProject} agents={agents} />
-              )}
+                  {currentTab === 'conversations' && (
+                    <ConversationsView activeProject={activeProject} agents={agents} />
+                  )}
 
-              {currentTab === 'analytics' && (
-                <AnalyticsView usageSummary={usageSummary} activeProject={activeProject} />
-              )}
+                  {currentTab === 'analytics' && (
+                    <AnalyticsView usageSummary={usageSummary} activeProject={activeProject} />
+                  )}
 
-              {currentTab === 'docs' && <DocsView />}
+                  {currentTab === 'docs' && <DocsView />}
 
-              {currentTab === 'settings' && (
-                <SettingsView isSupabaseConnected={isSupabaseConnected} />
-              )}
+                  {currentTab === 'settings' && (
+                    <SettingsView isSupabaseConnected={isSupabaseConnected} />
+                  )}
 
-              {currentTab === 'providers' && (
-                <ProvidersView />
+                  {currentTab === 'providers' && (
+                    <ProvidersView />
+                  )}
+                </>
               )}
-            </>
+            </div>
           )}
         </main>
       </div>
 
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        currentUser={currentUser}
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          refreshData();
-        }}
-        onLogoutSuccess={() => {
-          setCurrentUser(null);
-          refreshData();
-        }}
-      />
+      
     </div>
   );
 }

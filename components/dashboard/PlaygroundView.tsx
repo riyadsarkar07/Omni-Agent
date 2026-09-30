@@ -527,15 +527,15 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
   return (
     <div className="h-[calc(100vh-8.5rem)] flex flex-col lg:flex-row gap-4">
       {/* Left Area: Creative Playground Tabs & Viewport */}
-      <div className="flex-1 flex flex-col bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+      <div className="flex-1 flex flex-col glass-panel border border-white/5 rounded-2xl overflow-hidden shadow-xl">
         {/* Horizontal Navigation Sub-Tabs bar */}
-        <div className="flex border-b border-slate-800 bg-slate-950/40 p-1 shrink-0 gap-1 overflow-x-auto select-none">
+        <div className="flex border-b border-white/5 bg-zinc-950/40 p-1 shrink-0 gap-1 overflow-x-auto select-none">
           <button
             onClick={() => setActiveSubTab('chatbot')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               activeSubTab === 'chatbot'
-                ? 'bg-slate-800 text-cyan-400 border border-slate-700'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-zinc-800 text-zinc-100 border border-white/5'
+                : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <Bot className="w-4 h-4" />
@@ -545,8 +545,8 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
             onClick={() => setActiveSubTab('music')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               activeSubTab === 'music'
-                ? 'bg-slate-800 text-cyan-400 border border-slate-700'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-zinc-800 text-zinc-100 border border-white/5'
+                : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <Music className="w-4 h-4" />
@@ -556,8 +556,8 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
             onClick={() => setActiveSubTab('video')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               activeSubTab === 'video'
-                ? 'bg-slate-800 text-cyan-400 border border-slate-700'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-zinc-800 text-zinc-100 border border-white/5'
+                : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <Video className="w-4 h-4" />
@@ -567,8 +567,8 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
             onClick={() => setActiveSubTab('transcribe')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               activeSubTab === 'transcribe'
-                ? 'bg-slate-800 text-cyan-400 border border-slate-700'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-zinc-800 text-zinc-100 border border-white/5'
+                : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <Mic className="w-4 h-4" />
@@ -587,12 +587,12 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
               {messages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-500/20 via-indigo-500/20 to-purple-500/20 border border-slate-800 flex items-center justify-center animate-pulse">
-                    <Sparkles className="w-7 h-7 text-cyan-400" />
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-zinc-500/20 via-zinc-500/20 to-zinc-500/20 border border-white/5 flex items-center justify-center animate-pulse">
+                    <Sparkles className="w-7 h-7 text-zinc-400" />
                   </div>
                   <div className="max-w-md space-y-1">
-                    <h3 className="font-bold text-sm text-slate-200">System Preset Chat playground</h3>
-                    <p className="text-xs text-slate-400 leading-relaxed">
+                    <h3 className="font-bold text-sm text-zinc-100">System Preset Chat playground</h3>
+                    <p className="text-xs text-zinc-400 leading-relaxed">
                       Send a message to interact with your configured agents. Multi-turn context is retained across conversations automatically.
                     </p>
                   </div>
@@ -607,7 +607,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                       <button
                         key={sample}
                         onClick={() => setInputMessage(sample)}
-                        className="text-[11px] px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-cyan-300 transition-all cursor-pointer text-left"
+                        className="text-[11px] px-3 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-800 border border-white/5 text-zinc-300 hover:text-zinc-100 transition-all cursor-pointer text-left"
                       >
                         {sample}
                       </button>
@@ -621,16 +621,16 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                 return (
                   <div key={msg.id} className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
                     {!isUser && (
-                      <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center shrink-0 mt-0.5 shadow-md shadow-cyan-500/10">
-                        <Bot className="w-4 h-4 text-white" />
+                      <div className="w-8 h-8 rounded-lg bg-zinc-700 flex items-center justify-center shrink-0 mt-0.5 shadow-md shadow-zinc-500/10">
+                        <Bot className="w-4 h-4 text-zinc-100" />
                       </div>
                     )}
 
                     <div
                       className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 space-y-2 text-xs leading-relaxed shadow-sm ${
                         isUser
-                          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-tr-none'
-                          : 'bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-tl-none'
+                          ? 'bg-zinc-100 text-zinc-950 rounded-tr-none'
+                          : 'bg-zinc-800/90 text-zinc-100 border border-white/5 rounded-tl-none'
                       }`}
                     >
                       {/* Message text */}
@@ -638,11 +638,11 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
                       {/* Reply Stats Footer */}
                       {!isUser && (
-                        <div className="pt-2 border-t border-slate-700/40 flex items-center justify-between text-[10px] text-slate-400">
+                        <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-zinc-400">
                           <div className="flex items-center gap-3">
                             {msg.latencyMs && (
                               <span className="flex items-center gap-1">
-                                <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+                                <Gauge className="w-3.5 h-3.5 text-zinc-400" />
                                 {msg.latencyMs}ms
                               </span>
                             )}
@@ -650,7 +650,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                           </div>
                           <button
                             onClick={() => copyToClipboard(msg.text, msg.id)}
-                            className="hover:text-slate-200 transition-colors p-1 cursor-pointer"
+                            className="hover:text-zinc-200 transition-colors p-1 cursor-pointer"
                           >
                             {copiedId === msg.id ? (
                               <Check className="w-3 h-3 text-emerald-400" />
@@ -663,8 +663,8 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                     </div>
 
                     {isUser && (
-                      <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
-                        <User className="w-4 h-4 text-slate-200" />
+                      <div className="w-8 h-8 rounded-lg bg-zinc-700 flex items-center justify-center shrink-0 mt-0.5">
+                        <User className="w-4 h-4 text-zinc-200" />
                       </div>
                     )}
                   </div>
@@ -673,11 +673,11 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
               {isChatLoading && !useStreaming && (
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-cyan-600/30 flex items-center justify-center shrink-0">
-                    <Bot className="w-4 h-4 text-cyan-400 animate-pulse" />
+                  <div className="w-8 h-8 rounded-lg bg-zinc-600/30 flex items-center justify-center shrink-0">
+                    <Bot className="w-4 h-4 text-zinc-400 animate-pulse" />
                   </div>
-                  <div className="px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/60 rounded-tl-none flex items-center gap-2 text-xs text-slate-300">
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                  <div className="px-4 py-3 rounded-2xl bg-zinc-800/80 border border-white/5 rounded-tl-none flex items-center gap-2 text-xs text-zinc-300">
+                    <span className="w-2 h-2 rounded-full bg-zinc-400 animate-ping" />
                     Gemini chatbot is thinking...
                   </div>
                 </div>
@@ -694,20 +694,20 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
             </div>
 
             {/* Chat Input form */}
-            <div className="p-3 border-t border-slate-800 bg-slate-950/80 shrink-0">
+            <div className="p-3 border-t border-white/5 bg-zinc-950/80 shrink-0">
               <form onSubmit={handleSendMessage} className="flex gap-2">
                 <input
                   type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   placeholder="Query chatbot (e.g. 'Can you explain the security measures of our architecture?')..."
-                  className="flex-1 bg-slate-900 border border-slate-700/80 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+                  className="flex-1 bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all focus:border-zinc-500"
                   disabled={isChatLoading}
                 />
                 <button
                   type="submit"
                   disabled={isChatLoading || !inputMessage.trim()}
-                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-white text-zinc-950 font-bold text-xs flex items-center gap-1.5 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
                 >
                   {isChatLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                   <span>Send</span>
@@ -725,9 +725,9 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                 <Music className="w-6 h-6 animate-pulse" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <h2 className="text-2xl font-extrabold tracking-tight text-zinc-100 flex items-center gap-2">
                   Lyria Creative Audio Engine
-                  <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30">
+                  <span className="text-[10px] bg-zinc-500/20 text-zinc-300 px-1.5 py-0.5 rounded border border-zinc-500/30">
                     Paid Key Optional
                   </span>
                 </h2>
@@ -824,9 +824,9 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                 <Video className="w-6 h-6 animate-pulse" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <h2 className="text-2xl font-extrabold tracking-tight text-zinc-100 flex items-center gap-2">
                   Veo 3 Video Motion Engine
-                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                  <span className="text-[10px] bg-zinc-500/20 text-zinc-300 px-1.5 py-0.5 rounded border border-zinc-500/30">
                     Model: veo-3.1-fast-generate-preview
                   </span>
                 </h2>
@@ -975,9 +975,9 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                 <Mic className="w-6 h-6 animate-pulse" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <h2 className="text-2xl font-extrabold tracking-tight text-zinc-100 flex items-center gap-2">
                   Gemini Transcribe Audio Platform
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                  <span className="text-[10px] bg-zinc-500/20 text-zinc-300 px-1.5 py-0.5 rounded border border-zinc-500/30">
                     Model: gemini-3.5-transcribe
                   </span>
                 </h2>
@@ -1103,21 +1103,21 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
       </div>
 
       {/* Right Area: Sidebar Config Controls (Adaptive based on active tab) */}
-      <div className="w-full lg:w-80 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between overflow-y-auto space-y-4">
+      <div className="w-full lg:w-80 glass-card border border-white/5 rounded-2xl p-4 flex flex-col justify-between overflow-y-auto space-y-4">
         {activeSubTab === 'chatbot' ? (
           <div className="space-y-4">
-            <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
+            <div className="border-b border-white/5 pb-3 flex items-center justify-between">
               <h3 className="font-bold text-xs text-white uppercase tracking-wider">Agent Parameters</h3>
-              <span className="text-[10px] text-cyan-400 font-medium font-mono">Live Config</span>
+              <span className="text-[10px] text-zinc-400 font-medium font-mono">Live Config</span>
             </div>
 
             {/* Select Agent Preset */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-400">Target Agent Preset</label>
+              <label className="text-[11px] font-semibold text-zinc-400">Target Agent Preset</label>
               <select
                 value={selectedAgentId}
                 onChange={(e) => handleSelectAgent(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 cursor-pointer"
+                className="w-full bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 cursor-pointer"
               >
                 {agents.map((agent) => (
                   <option key={agent.id} value={agent.id}>
@@ -1129,11 +1129,11 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
             {/* Select Chatbot Role */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-400">Gemini System Persona / Role</label>
+              <label className="text-[11px] font-semibold text-zinc-400">Gemini System Persona / Role</label>
               <select
                 value={selectedRole}
                 onChange={(e) => handleRoleChange(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 cursor-pointer"
+                className="w-full bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 cursor-pointer"
               >
                 <option value="custom">Custom (Defined by Agent Preset)</option>
                 <option value="programmer">Software Architect & Engineer</option>
@@ -1145,11 +1145,11 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
             {/* Dynamic Model Selector grouped by Provider */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-400">AI Model Router</label>
+              <label className="text-[11px] font-semibold text-zinc-400">AI Model Router</label>
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 cursor-pointer"
+                className="w-full bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-500 cursor-pointer"
               >
                 {providers.length === 0 ? (
                   <>
@@ -1161,9 +1161,9 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                   providers
                     .filter((p) => p.enabled)
                     .map((p) => (
-                      <optgroup key={p.id} label={p.name} className="bg-slate-900 text-slate-300 font-bold">
+                      <optgroup key={p.id} label={p.name} className="bg-zinc-900 text-zinc-300 font-bold">
                         {p.models.map((m) => (
-                          <option key={`${p.id}:${m}`} value={m} className="bg-slate-950 text-slate-100 font-normal">
+                          <option key={`${p.id}:${m}`} value={m} className="bg-zinc-950 text-zinc-100 font-normal">
                             {m}
                           </option>
                         ))}
@@ -1187,30 +1187,30 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                   className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
                 />
               </div>
-              <p className="text-[10px] text-slate-400 leading-tight">
+              <p className="text-[10px] text-zinc-400 leading-tight">
                 Forces standard high reasoning mode logic with ThinkingLevel.HIGH parameters.
               </p>
             </div>
 
             {/* SSE Switch */}
-            <div className="p-3 rounded-lg bg-slate-800/40 border border-slate-700/50 flex items-center justify-between">
+            <div className="p-3 rounded-lg bg-zinc-800/40 border border-white/5 flex items-center justify-between">
               <div>
-                <div className="text-xs font-semibold text-slate-200">Server-Sent Events (SSE)</div>
-                <div className="text-[10px] text-slate-400">Stream tokens in real-time</div>
+                <div className="text-xs font-semibold text-zinc-200">Server-Sent Events (SSE)</div>
+                <div className="text-[10px] text-zinc-400">Stream tokens in real-time</div>
               </div>
               <input
                 type="checkbox"
                 checked={useStreaming}
                 onChange={(e) => setUseStreaming(e.target.checked)}
-                className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
+                className="w-4 h-4 accent-zinc-500 rounded cursor-pointer"
               />
             </div>
 
             {/* Temperature Slider */}
             <div className="space-y-1.5">
-              <div className="flex justify-between text-[11px] font-semibold text-slate-400">
+              <div className="flex justify-between text-[11px] font-semibold text-zinc-400">
                 <span>Temperature</span>
-                <span className="text-cyan-400">{temperature}</span>
+                <span className="text-zinc-400">{temperature}</span>
               </div>
               <input
                 type="range"
@@ -1219,18 +1219,18 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
                 step="0.05"
                 value={temperature}
                 onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full accent-cyan-500 cursor-pointer"
+                className="w-full accent-zinc-500 cursor-pointer"
               />
             </div>
 
             {/* System Instructions Preview */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-400">Active System Instruction</label>
+              <label className="text-[11px] font-semibold text-zinc-400">Active System Instruction</label>
               <textarea
                 rows={3}
                 value={systemInstructions}
                 onChange={(e) => setSystemInstructions(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-300 focus:outline-none focus:border-cyan-500 resize-none font-sans"
+                className="w-full bg-zinc-950 border border-white/10 rounded-lg p-2.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-500 resize-none font-sans"
                 placeholder="Persona system instruction context..."
               />
             </div>

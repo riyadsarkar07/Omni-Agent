@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Agent, Project } from '@/lib/types';
 import { AIProvider } from '@/lib/providers/types';
 import {
@@ -11,11 +11,11 @@ import {
   Sparkles,
   Brain,
   Wrench,
-  Check,
   X,
-  Sliders,
   Layers,
-  HelpCircle,
+  ChevronRight,
+  ShieldAlert,
+  Check,
 } from 'lucide-react';
 
 interface AgentsViewProps {
@@ -53,7 +53,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<AIProvider[]>([]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetch('/api/v1/providers')
       .then((res) => res.json())
       .then((data) => {
@@ -115,12 +115,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setError('Agent name is required');
-      return;
-    }
-    if (!systemInstructions.trim()) {
-      setError('System instructions are required');
+    if (!name.trim() || !systemInstructions.trim()) {
+      setError('Agent name and system instructions are required');
       return;
     }
 
@@ -143,26 +139,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         project_id: projectId,
       };
 
-      if (editingAgent) {
-        const res = await fetch(`/api/v1/agents/${editingAgent.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.message || data.error || 'Failed to update agent');
-        }
-      } else {
-        const res = await fetch('/api/v1/agents', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.message || data.error || 'Failed to create agent');
-        }
+      const endpoint = editingAgent ? `/api/v1/agents/${editingAgent.id}` : '/api/v1/agents';
+      const method = editingAgent ? 'PATCH' : 'POST';
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || data.error || 'Failed to update agent');
       }
 
       setIsModalOpen(false);
@@ -188,387 +176,244 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-20 max-w-[1600px] mx-auto w-full">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight">AI Agent Directory</h2>
-          <p className="text-xs text-slate-400">
+          <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">AI Agent Directory</h2>
+          <p className="text-zinc-400 text-sm mt-1">
             Configure system personalities, Gemini reasoning levels, and tool execution bindings.
           </p>
         </div>
         <button
           onClick={handleOpenCreate}
-          className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
+          className="px-5 py-2.5 rounded-xl bg-white hover:bg-zinc-100 text-zinc-950 font-bold text-xs flex items-center gap-2 transition-all shadow-lg"
         >
-          <Plus className="w-4 h-4" />
-          Create New Agent
+          <Plus className="w-4 h-4" /> Create New Agent
         </button>
       </div>
 
       {/* Agents Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {agents.map((agent) => {
-          const project = projects.find((p) => p.id === agent.project_id);
-          const isHighThinking = agent.thinking_level === 'HIGH' || agent.model === 'gemini-3.1-pro-preview';
+      {agents.length === 0 ? (
+        <div className="glass-panel border-dashed border-2 border-white/10 rounded-3xl p-12 flex flex-col items-center justify-center text-center">
+          <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+            <Bot className="w-8 h-8 text-zinc-500" />
+          </div>
+          <h3 className="text-lg font-bold text-white mb-2">No Agents Found</h3>
+          <p className="text-sm text-zinc-400 mb-6 max-w-sm">
+            Create your first agent to configure persona behaviors and connect them to AI providers.
+          </p>
+          <button
+            onClick={handleOpenCreate}
+            className="px-5 py-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 font-bold text-xs flex items-center gap-2 transition-all border border-cyan-500/20"
+          >
+            <Plus className="w-4 h-4" /> Create Agent
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {agents.map((agent) => {
+            const project = projects.find((p) => p.id === agent.project_id);
+            const isHighThinking = agent.thinking_level === 'HIGH' || agent.model === 'gemini-3.1-pro-preview';
 
-          return (
-            <div
-              key={agent.id}
-              className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 flex flex-col justify-between hover:border-slate-700/80 transition-all space-y-4 shadow-sm"
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600/30 to-indigo-600/30 border border-cyan-500/30 flex items-center justify-center">
-                      <Bot className="w-5 h-5 text-cyan-400" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-sm text-white line-clamp-1">{agent.name}</h3>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                        <Layers className="w-3 h-3 text-slate-500" />
-                        <span>{project?.name || 'Project'}</span>
+            return (
+              <div
+                key={agent.id}
+                className="glass-card rounded-2xl p-6 flex flex-col justify-between hover:border-white/10 transition-all space-y-5"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-cyan-400/20 to-blue-600/20 border border-cyan-500/20 flex items-center justify-center shadow-inner">
+                        <Bot className="w-6 h-6 text-cyan-400" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-[15px] text-white line-clamp-1">{agent.name}</h3>
+                        <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-1 font-medium">
+                          <Layers className="w-3 h-3 text-zinc-500" />
+                          <span>{project?.name || 'Project'}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    Published
-                  </span>
+                  <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+                    {agent.description || 'Custom multi-turn Gemini agent.'}
+                  </p>
+
+                  {/* Model Badges */}
+                  <div className="flex flex-wrap gap-2">
+                    <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-white/5 border border-white/10 uppercase tracking-widest text-zinc-300">
+                      {agent.model}
+                    </span>
+                    {isHighThinking && (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center gap-1 uppercase tracking-widest">
+                        <Brain className="w-3 h-3" /> HIGH THINKING
+                      </span>
+                    )}
+                    {agent.tools_enabled && agent.tools_enabled.length > 0 && (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center gap-1 uppercase tracking-widest">
+                        <Wrench className="w-3 h-3" /> {agent.tools_enabled.length} TOOLS
+                      </span>
+                    )}
+                  </div>
+
+                  {/* System Prompt snippet */}
+                  <div className="rounded-xl bg-zinc-950/50 border border-white/5 p-3 text-[11px] text-zinc-500 line-clamp-2 font-mono">
+                    {agent.system_instructions}
+                  </div>
                 </div>
 
-                <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
-                  {agent.description || 'Custom multi-turn Gemini agent.'}
-                </p>
+                {/* Action Buttons */}
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+                  <button
+                    onClick={() => onTestInPlayground(agent.id)}
+                    className="px-4 py-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-cyan-500/0 hover:border-cyan-500/30"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Test Live
+                  </button>
 
-                {/* Model Badges */}
-                <div className="flex flex-wrap gap-1.5">
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                    {agent.model}
-                  </span>
-                  {isHighThinking && (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
-                      <Brain className="w-3 h-3" />
-                      Thinking: HIGH
-                    </span>
-                  )}
-                  {agent.tools_enabled && agent.tools_enabled.length > 0 && (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 flex items-center gap-1">
-                      <Wrench className="w-3 h-3" />
-                      {agent.tools_enabled.length} Tools
-                    </span>
-                  )}
-                </div>
-
-                {/* System Prompt snippet */}
-                <div className="rounded-lg bg-slate-950/70 border border-slate-800/80 p-2.5 text-[11px] text-slate-400 line-clamp-2 font-mono">
-                  {agent.system_instructions}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleOpenEdit(agent)}
+                      className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                      title="Edit Agent"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(agent.id)}
+                      className="p-2 rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                      title="Delete Agent"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Action Buttons */}
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                <button
-                  onClick={() => onTestInPlayground(agent.id)}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Test Live
-                </button>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleOpenEdit(agent)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Edit Agent"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(agent.id)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                    title="Delete Agent"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Create / Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="font-bold text-base text-white flex items-center gap-2">
-                <Bot className="w-5 h-5 text-cyan-400" />
-                {editingAgent ? 'Edit Agent Configuration' : 'Create New AI Agent'}
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-zinc-950 border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-8 py-5 border-b border-white/5 flex items-center justify-between bg-zinc-900/50">
+              <h3 className="font-extrabold text-lg text-white flex items-center gap-3">
+                <div className="p-2 bg-cyan-500/10 rounded-xl text-cyan-400 border border-cyan-500/20">
+                  <Bot className="w-5 h-5" />
+                </div>
+                {editingAgent ? 'Edit Agent Identity' : 'Create New AI Agent'}
               </h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
+              <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white p-1 cursor-pointer transition">
+                <X className="w-6 h-6" />
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+            <form onSubmit={handleSave} className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
               {error && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-3 font-medium">
+                  <ShieldAlert className="w-5 h-5 shrink-0" />
                   {error}
                 </div>
               )}
 
-              {/* Name & Project */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Agent Name *</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Dating Matchmaker, Code Architect"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-                    required
-                  />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Agent Name *</label>
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Code Architect" className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors" required />
                 </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Associated Project</label>
-                  <select
-                    value={projectId}
-                    onChange={(e) => setProjectId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Associated Project</label>
+                  <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors">
+                    {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
               </div>
 
-              {/* Description */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Description</label>
-                <input
-                  type="text"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Short summary of this agent's scope"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              {/* Provider & Model Selection */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Active AI Provider</label>
-                  <select
-                    value={providerId}
-                    onChange={(e) => {
-                      const prov = e.target.value;
-                      setProviderId(prov);
-                      const matched = providers.find((p) => p.id === prov);
-                      if (matched) {
-                        setModel(matched.defaultModel);
-                      }
-                    }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 cursor-pointer"
-                  >
-                    {providers.length === 0 ? (
-                      <option value="gemini">Google Gemini</option>
-                    ) : (
-                      providers.filter((p) => p.enabled).map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Active Model</label>
-                  <select
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 cursor-pointer"
-                  >
-                    {providers.length === 0 ? (
-                      <>
-                        <option value="gemini-3.8-flash">Gemini 3.8 Flash (General Workhorse)</option>
-                        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Complex Reasoning)</option>
-                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Ultra-Low Latency)</option>
-                      </>
-                    ) : (
-                      (providers.find((p) => p.id === providerId)?.models || []).map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-              </div>
-
-              {/* Fallback Provider & Fallback Model (Optional) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Fallback Provider (Optional)</label>
-                  <select
-                    value={fallbackProviderId}
-                    onChange={(e) => {
-                      const prov = e.target.value;
-                      setFallbackProviderId(prov);
-                      if (prov) {
-                        const matched = providers.find((p) => p.id === prov);
-                        if (matched) setFallbackModel(matched.defaultModel);
-                      } else {
-                        setFallbackModel('');
-                      }
-                    }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 cursor-pointer"
-                  >
-                    <option value="">No Fallback</option>
-                    {providers.filter((p) => p.enabled && p.id !== providerId).map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Fallback Model</label>
-                  <select
-                    disabled={!fallbackProviderId}
-                    value={fallbackModel}
-                    onChange={(e) => setFallbackModel(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 cursor-pointer disabled:opacity-40"
-                  >
-                    <option value="">No Fallback Model</option>
-                    {(providers.find((p) => p.id === fallbackProviderId)?.models || []).map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Thinking Mode</label>
-                  <select
-                    value={thinkingLevel}
-                    onChange={(e) => {
-                      const val = e.target.value as any;
-                      setThinkingLevel(val);
-                      if (val === 'HIGH') {
-                        setModel('gemini-3.1-pro-preview');
-                      }
-                    }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-                  >
-                    <option value="OFF">Standard (Off)</option>
-                    <option value="HIGH">ThinkingLevel.HIGH (Reasoning)</option>
-                    <option value="LOW">ThinkingLevel.LOW</option>
-                  </select>
-                </div>
-
-              {/* System Instructions */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">
-                  System Instructions & Persona *
-                </label>
-                <textarea
-                  rows={4}
-                  value={systemInstructions}
-                  onChange={(e) => setSystemInstructions(e.target.value)}
-                  placeholder="You are an expert customer concierge. Greet users with warmth and resolve questions..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs text-white focus:outline-none focus:border-cyan-500 resize-none font-mono"
-                  required
-                />
-              </div>
-
-              {/* Temperature & Memory */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs font-semibold text-slate-300">
-                    <span>Creativity (Temperature)</span>
-                    <span className="text-cyan-400">{temperature}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1.5"
-                    step="0.05"
-                    value={temperature}
-                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                    className="w-full accent-cyan-500 cursor-pointer"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-4">
-                  <input
-                    type="checkbox"
-                    id="memToggle"
-                    checked={memoryEnabled}
-                    onChange={(e) => setMemoryEnabled(e.target.checked)}
-                    className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
-                  />
-                  <label htmlFor="memToggle" className="text-xs font-semibold text-slate-300 cursor-pointer">
-                    Enable Conversation Memory
-                  </label>
-                </div>
-              </div>
-
-              {/* Tools Selection */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-300">Enable Agent Function Tools</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {availableTools.map((t) => {
-                    const isChecked = toolsEnabled.includes(t.id);
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Description</label>
+                <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short summary" className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors" />
+              </div>
+
+              <div className="p-5 rounded-2xl border border-white/5 bg-zinc-900/30 space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">AI Provider</label>
+                    <select value={providerId} onChange={(e) => {
+                        const prov = e.target.value;
+                        setProviderId(prov);
+                        const matched = providers.find((p) => p.id === prov);
+                        if (matched) setModel(matched.defaultModel || matched.models?.[0]);
+                      }} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors cursor-pointer">
+                      {providers.length === 0 ? <option value="gemini">Google Gemini</option> : providers.filter(p=>p.enabled).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Primary Model</label>
+                    <select value={model} onChange={(e) => setModel(e.target.value)} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors cursor-pointer">
+                      {providers.find((p) => p.id === providerId)?.models?.map((m: string) => <option key={m} value={m}>{m}</option>) || (
+                        <>
+                          <option value="gemini-3.8-flash">gemini-3.8-flash</option>
+                          <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                  <span>System Prompt & Instructions *</span>
+                </label>
+                <textarea value={systemInstructions} onChange={(e) => setSystemInstructions(e.target.value)} placeholder="You are a helpful assistant..." rows={4} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors resize-none font-mono" required />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                 <div className="space-y-3">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest flex justify-between">
+                      Temperature <span>{temperature}</span>
+                    </label>
+                    <input type="range" min="0" max="2" step="0.1" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} className="w-full accent-cyan-500" />
+                 </div>
+                 <div className="space-y-3">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Gemini Thinking Mode</label>
+                    <div className="flex items-center gap-4 bg-zinc-900 p-1 rounded-xl">
+                      {(['OFF', 'LOW', 'HIGH'] as const).map(lvl => (
+                        <button key={lvl} type="button" onClick={() => setThinkingLevel(lvl)} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${thinkingLevel === lvl ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>{lvl}</button>
+                      ))}
+                    </div>
+                 </div>
+              </div>
+
+              <div className="space-y-4 pt-4 border-t border-white/5">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2"><Wrench className="w-3.5 h-3.5" /> Tool Bindings</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {availableTools.map(tool => {
+                    const active = toolsEnabled.includes(tool.id);
                     return (
-                      <div
-                        key={t.id}
-                        onClick={() => handleToggleTool(t.id)}
-                        className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
-                          isChecked
-                            ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-300'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between text-xs font-semibold">
-                          <span>{t.name}</span>
-                          {isChecked && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                      <div key={tool.id} onClick={() => handleToggleTool(tool.id)} className={`p-4 rounded-xl border transition cursor-pointer flex items-center gap-3 ${active ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-zinc-900 border-white/5 hover:border-white/10'}`}>
+                        <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${active ? 'bg-cyan-500 text-zinc-950 border-cyan-400' : 'bg-transparent border-zinc-600'}`}>
+                          {active && <Check className="w-3.5 h-3.5" />}
                         </div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">{t.desc}</div>
+                        <div>
+                          <div className={`text-sm font-bold ${active ? 'text-white' : 'text-zinc-300'}`}>{tool.name}</div>
+                          <div className="text-[10px] text-zinc-500 mt-0.5">{tool.desc}</div>
+                        </div>
                       </div>
-                    );
+                    )
                   })}
                 </div>
               </div>
 
-              {/* Modal Actions */}
-              <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-all disabled:opacity-40 cursor-pointer shadow-md shadow-cyan-500/20"
-                >
-                  {isSubmitting ? 'Saving...' : editingAgent ? 'Save Changes' : 'Create Agent'}
+              <div className="pt-6 border-t border-white/5 flex gap-3 justify-end items-center">
+                <button type="button" disabled={isSubmitting} onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl bg-transparent hover:bg-white/5 text-white text-sm font-bold transition">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="px-6 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-sm font-bold shadow-lg transition flex items-center gap-2">
+                  {isSubmitting ? 'Saving...' : 'Save Agent'}
                 </button>
               </div>
             </form>

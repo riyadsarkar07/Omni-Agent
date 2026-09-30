@@ -134,14 +134,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight">Multi-Project Workspaces</h2>
-          <p className="text-xs text-slate-400">
+          <h2 className="text-2xl font-extrabold tracking-tight text-white">Multi-Project Workspaces</h2>
+          <p className="text-sm text-zinc-400">
             Isolate agents, API keys, conversations, and usage limits across different applications.
           </p>
         </div>
         <button
           onClick={handleOpenCreate}
-          className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
+          className="px-4 py-2 rounded-xl bg-white text-zinc-950 font-bold text-sm flex items-center gap-2 transition-all cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           Create New Project
@@ -158,10 +158,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           return (
             <div
               key={project.id}
-              className={`rounded-xl bg-slate-900/60 border p-5 flex flex-col justify-between space-y-4 transition-all shadow-sm ${
+              className={`glass-card rounded-2xl p-6 border border-white/5 flex flex-col justify-between space-y-4 transition-all ${
                 isCurrent
-                  ? 'border-cyan-500/50 ring-1 ring-cyan-500/30 bg-slate-900/80'
-                  : 'border-slate-800 hover:border-slate-700'
+                  ? 'border-white/20 bg-zinc-900/50'
+                  : 'bg-zinc-950 hover:bg-zinc-900/50'
               }`}
             >
               <div className="space-y-3">
@@ -206,25 +206,22 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 </p>
 
                 {/* Sub-resource counts */}
-                <div className="grid grid-cols-3 gap-2 text-center text-xs pt-2 border-t border-slate-800/80">
-                  <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                <div className="grid grid-cols-3 gap-2 text-center text-xs pt-4 border-t border-white/5">
+                  <div className="p-3 rounded-xl bg-zinc-900 border border-white/5">
                     <div className="font-bold text-white text-sm">{projectAgents.length}</div>
-                    <div className="text-[10px] text-slate-400 flex items-center justify-center gap-1 mt-0.5">
-                      <Bot className="w-3 h-3 text-cyan-400" />
+                    <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
                       Agents
                     </div>
                   </div>
-                  <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                  <div className="p-3 rounded-xl bg-zinc-900 border border-white/5">
                     <div className="font-bold text-white text-sm">{projectKeys.length}</div>
-                    <div className="text-[10px] text-slate-400 flex items-center justify-center gap-1 mt-0.5">
-                      <KeyRound className="w-3 h-3 text-amber-400" />
+                    <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
                       Keys
                     </div>
                   </div>
-                  <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                  <div className="p-3 rounded-xl bg-zinc-900 border border-white/5">
                     <div className="font-bold text-white text-sm">{project.rate_limit_rpm}</div>
-                    <div className="text-[10px] text-slate-400 flex items-center justify-center gap-1 mt-0.5">
-                      <Activity className="w-3 h-3 text-emerald-400" />
+                    <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
                       RPM Cap
                     </div>
                   </div>
@@ -235,12 +232,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 {!isCurrent ? (
                   <button
                     onClick={() => onSelectProject(project)}
-                    className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+                    className="w-full py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold transition-colors cursor-pointer"
                   >
                     Switch to this Project
                   </button>
                 ) : (
-                  <div className="w-full py-1.5 text-center text-[11px] text-cyan-400 font-semibold bg-cyan-500/10 rounded-lg border border-cyan-500/20">
+                  <div className="w-full py-2 text-center text-sm text-zinc-400 font-semibold bg-zinc-900 rounded-xl border border-white/5">
                     Selected Workspace
                   </div>
                 )}
@@ -253,15 +250,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                <FolderGit2 className="w-4 h-4 text-cyan-400" />
+          <div className="w-full max-w-md bg-zinc-950 border border-white/10 rounded-3xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <h3 className="font-bold text-lg text-white flex items-center gap-2">
                 {editingProject ? 'Edit Project' : 'Create Project'}
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-200 cursor-pointer"
+                className="text-zinc-400 hover:text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -269,69 +265,69 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
             <form onSubmit={handleSave} className="space-y-4">
               {error && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                <div className="p-3 rounded-xl bg-rose-950/20 border border-rose-900 text-rose-400 text-sm">
                   {error}
                 </div>
               )}
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Project Name *</label>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Project Name *</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. My Dating App, Support Portal"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20"
                   required
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Project Slug</label>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Project Slug</label>
                 <input
                   type="text"
                   value={slug}
                   onChange={(e) => setSlug(e.target.value.toLowerCase())}
                   placeholder="e.g. dating-app"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20 font-mono"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Description</label>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Description</label>
                 <input
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Brief description of application scope"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Default Rate Limit (RPM)</label>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Default Rate Limit (RPM)</label>
                 <input
                   type="number"
                   min="10"
                   max="1000"
                   value={rateLimitRpm}
                   onChange={(e) => setRateLimitRpm(parseInt(e.target.value) || 60)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20"
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-end gap-3">
+              <div className="pt-3 border-t border-white/5 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-all disabled:opacity-40 cursor-pointer shadow-md shadow-cyan-500/20"
+                  className="px-4 py-2 rounded-xl bg-white text-zinc-950 text-sm font-bold transition-all disabled:opacity-40 cursor-pointer"
                 >
                   {isSubmitting ? 'Saving...' : editingProject ? 'Save Changes' : 'Create Project'}
                 </button>

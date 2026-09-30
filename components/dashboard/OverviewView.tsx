@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Server,
   Layers,
+  ChevronRight,
 } from 'lucide-react';
 
 interface OverviewViewProps {
@@ -35,6 +36,21 @@ interface OverviewViewProps {
   onOpenCreateKey: () => void;
 }
 
+const MetricCard = ({ title, value, icon: Icon, color, subValue, pulse }: { title: string, value: string | number, icon: any, color: string, subValue?: React.ReactNode, pulse?: boolean }) => (
+  <div className="glass-card rounded-2xl p-5 flex items-start justify-between relative overflow-hidden group">
+    <div className="relative z-10">
+      <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{title}</div>
+      <div className="text-3xl font-extrabold text-white mt-1 tabular-nums">{value}</div>
+      {subValue && <div className="text-[11px] text-zinc-400 mt-2 flex items-center gap-1.5">{subValue}</div>}
+    </div>
+    <div className={`p-3 rounded-xl ${color} bg-white/5 border border-white/5 relative z-10 transition-transform group-hover:scale-110`}>
+      <Icon className="w-5 h-5" />
+    </div>
+    {/* Decorative background glow */}
+    <div className={`absolute -bottom-6 -right-6 w-24 h-24 ${color.replace('text-', 'bg-')}/10 rounded-full blur-2xl pointer-events-none transition-opacity group-hover:opacity-75 opacity-25`} />
+  </div>
+);
+
 export const OverviewView: React.FC<OverviewViewProps> = ({
   projects,
   agents,
@@ -51,167 +67,129 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     fetch('/api/v1/providers')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && data.providers && !ignore) {
-          setProviders(data.providers);
-        }
+        if (data.success && data.providers && !ignore) setProviders(data.providers);
       })
       .catch(() => {});
-    return () => {
-      ignore = true;
-    };
+    return () => { ignore = true; };
   }, []);
 
-  const successRate =
-    usageSummary.totalRequests > 0
-      ? Math.round((usageSummary.successfulRequests / usageSummary.totalRequests) * 100)
-      : 100;
+  const successRate = usageSummary.totalRequests > 0
+    ? Math.round((usageSummary.successfulRequests / usageSummary.totalRequests) * 100)
+    : 100;
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto w-full">
-      {/* Compact Dashboard Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 border-b border-slate-800/80">
+    <div className="space-y-8 max-w-[1600px] mx-auto w-full animate-in fade-in duration-500 pb-20">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">Overview</h1>
-          <p className="text-slate-400 text-xs md:text-sm mt-1">
-            Manage your AI projects, agents, providers, API usage and activity from one dashboard.
+          <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">Workspace Overview</h1>
+          <p className="text-zinc-400 text-sm mt-1">
+            Manage your AI projects, agents, endpoints, and activity from one dashboard.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => onNavigate('playground')}
-            className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-cyan-500/15"
+            className="px-4 py-2 bg-white hover:bg-zinc-100 text-zinc-950 text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            Launch Playground
+            <Sparkles className="w-3.5 h-3.5" /> Launch Playground
           </button>
           <button
             onClick={() => onNavigate('docs')}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-4 py-2 bg-zinc-900 border border-white/10 hover:bg-zinc-800 text-zinc-300 text-xs font-bold rounded-xl flex items-center gap-2 transition-colors shadow-sm"
           >
-            REST API Docs
-            <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
+            API Docs <ArrowUpRight className="w-3.5 h-3.5 text-zinc-500" />
           </button>
         </div>
       </div>
 
-      {/* Metric Cards Grid - Fully Responsive */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Projects Card */}
-        <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-2 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-            <span>Total Projects</span>
-            <FolderGit2 className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white tracking-tight tabular-nums">{projects.length}</div>
-          <div className="text-[10px] text-slate-500">Isolated project workspaces</div>
-        </div>
-
-        {/* Agents Card */}
-        <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-2 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-            <span>Active Agents</span>
-            <Bot className="w-4 h-4 text-indigo-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white tracking-tight tabular-nums">{agents.length}</div>
-          <div className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            All published & ready
-          </div>
-        </div>
-
-        {/* API Calls Card */}
-        <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-2 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-            <span>API Invocations</span>
-            <Activity className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white tracking-tight tabular-nums">
-            {usageSummary.totalRequests.toLocaleString()}
-          </div>
-          <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-emerald-400 font-bold">{successRate}%</span> success rate
-          </div>
-        </div>
-
-        {/* Estimated Tokens Card */}
-        <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-2 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-            <span>Estimated Tokens</span>
-            <Zap className="w-4 h-4 text-purple-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white tracking-tight tabular-nums">
-            {usageSummary.totalTokens.toLocaleString()}
-          </div>
-          <div className="text-[10px] text-slate-400 flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5 text-cyan-400" />
-            Avg latency: <span className="text-slate-300 font-semibold">{usageSummary.avgLatencyMs}ms</span>
-          </div>
-        </div>
+      {/* Metrics Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <MetricCard
+          title="Total Projects"
+          value={projects.length}
+          icon={FolderGit2}
+          color="text-cyan-400"
+          subValue="Isolated project workspaces"
+        />
+        <MetricCard
+          title="Active Agents"
+          value={agents.length}
+          icon={Bot}
+          color="text-indigo-400"
+          subValue={<><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse text-emerald-400" /> All published & ready</>}
+        />
+        <MetricCard
+          title="API Invocations"
+          value={usageSummary.totalRequests.toLocaleString()}
+          icon={Activity}
+          color="text-amber-400"
+          subValue={<><TrendingUp className="w-3.5 h-3.5 text-emerald-400" /> <span className="text-emerald-400 font-bold">{successRate}%</span> success rate</>}
+        />
+        <MetricCard
+          title="Tokens Processed"
+          value={usageSummary.totalTokens.toLocaleString()}
+          icon={Zap}
+          color="text-purple-400"
+          subValue={<><Clock className="w-3.5 h-3.5 text-cyan-400" /> Avg latency: <span className="text-white font-semibold">{usageSummary.avgLatencyMs}ms</span></>}
+        />
       </div>
 
-      {/* Main Layout Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Double-Column */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+        {/* Left Column - Double Wide */}
+        <div className="lg:col-span-2 space-y-8">
+
           {/* Recent API Logs Table */}
-          <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-4 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between">
+          <div className="glass-card rounded-2xl p-6 border border-white/5 relative overflow-hidden">
+            <div className="flex items-center justify-between mb-6 relative z-10">
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-cyan-400" />
-                <h3 className="font-bold text-sm text-white">Recent API Activity Logs</h3>
+                <h3 className="font-bold text-sm text-white tracking-wide">Recent Telemetry</h3>
               </div>
-              <button
-                onClick={() => onNavigate('analytics')}
-                className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
-              >
+              <button onClick={() => onNavigate('analytics')} className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer transition">
                 Full Analytics →
               </button>
             </div>
 
-            <div className="overflow-x-auto -mx-5 px-5">
-              <table className="w-full text-left text-xs min-w-[500px]">
+            <div className="overflow-x-auto relative z-10">
+              <table className="w-full text-left text-xs min-w-[600px]">
                 <thead>
-                  <tr className="border-b border-slate-800/80 text-slate-400 font-semibold">
-                    <th className="pb-2.5">Endpoint</th>
-                    <th className="pb-2.5">Model</th>
-                    <th className="pb-2.5">Status</th>
-                    <th className="pb-2.5">Latency</th>
-                    <th className="pb-2.5">Tokens</th>
-                    <th className="pb-2.5 text-right">Time</th>
+                  <tr className="border-b border-white/10 text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">
+                    <th className="pb-3 px-2">Endpoint</th>
+                    <th className="pb-3 px-2">Model</th>
+                    <th className="pb-3 px-2">Status</th>
+                    <th className="pb-3 px-2">Latency</th>
+                    <th className="pb-3 px-2">Tokens</th>
+                    <th className="pb-3 px-2 text-right">Time</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/40 font-mono text-[11px]">
+                <tbody className="divide-y divide-white/5">
                   {usageSummary.recentLogs.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-6 text-center text-slate-500 font-sans">
-                        No activity records found yet. Run some chat sessions to populate logs!
+                      <td colSpan={6} className="py-8 text-center text-zinc-500">
+                        No activity records found yet. Route some traffic to populate logs!
                       </td>
                     </tr>
                   ) : (
-                    usageSummary.recentLogs.slice(0, 7).map((log) => {
+                    usageSummary.recentLogs.slice(0, 6).map((log) => {
                       const isSuccess = log.status_code >= 200 && log.status_code < 300;
                       return (
-                        <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-2.5 font-sans font-medium text-slate-200">
+                        <tr key={log.id} className="hover:bg-white/[0.02] transition-colors group">
+                          <td className="py-3 px-2 font-mono text-[11px] font-medium text-zinc-200">
                             {log.endpoint}
                           </td>
-                          <td className="py-2.5 text-slate-400">{log.model}</td>
-                          <td className="py-2.5">
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
-                                isSuccess
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                              }`}
-                            >
-                              {isSuccess ? <CheckCircle2 className="w-2.5 h-2.5" /> : <AlertTriangle className="w-2.5 h-2.5" />}
+                          <td className="py-3 px-2 text-zinc-400">{log.model}</td>
+                          <td className="py-3 px-2">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${isSuccess ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                              {isSuccess ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
                               {log.status_code}
                             </span>
                           </td>
-                          <td className="py-2.5 text-slate-300 tabular-nums">{log.latency_ms}ms</td>
-                          <td className="py-2.5 text-slate-400 tabular-nums">{log.total_tokens}</td>
-                          <td className="py-2.5 text-right font-sans text-slate-400">
+                          <td className="py-3 px-2 text-zinc-300 tabular-nums">{log.latency_ms}ms</td>
+                          <td className="py-3 px-2 text-zinc-400 tabular-nums">{log.total_tokens}</td>
+                          <td className="py-3 px-2 text-right font-mono text-zinc-400 text-[10px]">
                             {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>
                         </tr>
@@ -223,200 +201,138 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             </div>
           </div>
 
-          {/* Sub-grid for Recent Projects and Recent Agents */}
+          {/* Sub-grid: Projects vs Agents */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Recent Workspaces / Projects */}
-            <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3.5 shadow-sm">
-              <div className="flex items-center justify-between">
+            <div className="glass-panel rounded-2xl p-5 border border-white/5">
+              <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-sm text-white flex items-center gap-2">
                   <FolderGit2 className="w-4 h-4 text-cyan-400" />
                   Recent Projects
                 </h3>
-                <button
-                  onClick={() => onNavigate('projects')}
-                  className="text-[11px] text-slate-400 hover:text-white"
-                >
-                  Manage →
-                </button>
               </div>
-              <div className="space-y-2 text-xs">
+              <div className="space-y-3">
                 {projects.slice(0, 3).map((p) => (
-                  <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/40 border border-slate-800/40">
+                  <div key={p.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/50 border border-white/5 hover:bg-zinc-900 transition-colors">
                     <div>
-                      <div className="font-bold text-slate-200">{p.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono mt-0.5">slug: {p.slug}</div>
+                      <div className="font-bold text-sm text-zinc-100">{p.name}</div>
+                      <div className="text-[10px] text-zinc-500 mt-1 uppercase tracking-wide">ID: {p.slug}</div>
                     </div>
-                    <span className="text-[10px] font-bold text-cyan-400 font-mono bg-cyan-500/5 border border-cyan-500/10 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] font-bold text-cyan-400 px-2 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20">
                       {p.rate_limit_rpm} RPM
                     </span>
                   </div>
                 ))}
-                {projects.length === 0 && (
-                  <div className="py-4 text-center text-slate-500 text-xs">No projects configured.</div>
-                )}
+                {projects.length === 0 && <div className="py-4 text-center text-zinc-500 text-xs shadow-inner rounded-lg bg-zinc-950/50">No projects</div>}
               </div>
             </div>
 
-            {/* Recent AI Agents */}
-            <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3.5 shadow-sm">
-              <div className="flex items-center justify-between">
+            <div className="glass-panel rounded-2xl p-5 border border-white/5">
+              <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-sm text-white flex items-center gap-2">
                   <Bot className="w-4 h-4 text-indigo-400" />
                   Recent Agents
                 </h3>
-                <button
-                  onClick={() => onNavigate('agents')}
-                  className="text-[11px] text-slate-400 hover:text-white"
-                >
-                  Manage →
-                </button>
               </div>
-              <div className="space-y-2 text-xs">
+              <div className="space-y-3">
                 {agents.slice(0, 3).map((a) => (
-                  <div key={a.id} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/40 border border-slate-800/40">
+                  <div key={a.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/50 border border-white/5 hover:bg-zinc-900 transition-colors">
                     <div>
-                      <div className="font-bold text-slate-200">{a.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono mt-0.5">model: {a.model}</div>
+                      <div className="font-bold text-sm text-zinc-100">{a.name}</div>
+                      <div className="text-[10px] text-zinc-500 mt-1 uppercase tracking-wide">MDL: {a.model}</div>
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded">
-                      Active
+                    <span className="text-[10px] font-bold text-emerald-400 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+                      ONLINE
                     </span>
                   </div>
                 ))}
-                {agents.length === 0 && (
-                  <div className="py-4 text-center text-slate-500 text-xs">No agents configured.</div>
-                )}
+                {agents.length === 0 && <div className="py-4 text-center text-zinc-500 text-xs shadow-inner rounded-lg bg-zinc-950/50">No agents</div>}
               </div>
             </div>
           </div>
+
         </div>
 
-        {/* Right Single-Column */}
+        {/* Right Column - Single */}
         <div className="space-y-6">
+
           {/* Quick Setup Actions */}
-          <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3 shadow-sm">
-            <h3 className="font-bold text-sm text-white flex items-center gap-2">
-              <Zap className="w-4 h-4 text-amber-400" />
-              Quick Actions
+          <div className="glass-card rounded-2xl p-6 border border-white/5 relative overflow-hidden">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2 mb-4 relative z-10">
+              <Zap className="w-4 h-4 text-amber-400" /> Actions
             </h3>
-
-            <div className="space-y-2">
-              <button
-                onClick={onOpenCreateAgent}
-                className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-left transition-all cursor-pointer group"
-              >
-                <div>
-                  <div className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300">
-                    Create New Agent
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Configure custom persona & tools</div>
+            <div className="space-y-2.5 relative z-10">
+              <button onClick={onOpenCreateAgent} className="w-full relative flex items-center justify-between p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 transition-all group overflow-hidden">
+                <div className="text-left">
+                  <div className="text-xs font-bold text-white group-hover:text-cyan-300">Create New Agent</div>
+                  <div className="text-[10px] text-zinc-400 mt-0.5">Custom persona & tools</div>
                 </div>
-                <Bot className="w-4 h-4 text-slate-400 group-hover:text-cyan-400 transition-colors" />
+                <Bot className="w-4 h-4 text-zinc-500 group-hover:text-cyan-400 transition" />
               </button>
-
-              <button
-                onClick={onOpenCreateKey}
-                className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-left transition-all cursor-pointer group"
-              >
-                <div>
-                  <div className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300">
-                    Generate API Key
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Access versioned endpoint tokens</div>
+              <button onClick={onOpenCreateKey} className="w-full relative flex items-center justify-between p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 transition-all group overflow-hidden">
+                <div className="text-left">
+                  <div className="text-xs font-bold text-white group-hover:text-cyan-300">Issue API Key</div>
+                  <div className="text-[10px] text-zinc-400 mt-0.5">Versioned access tokens</div>
                 </div>
-                <KeyRound className="w-4 h-4 text-slate-400 group-hover:text-cyan-400 transition-colors" />
+                <KeyRound className="w-4 h-4 text-zinc-500 group-hover:text-cyan-400 transition" />
               </button>
-
-              <button
-                onClick={() => onNavigate('playground')}
-                className="w-full flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-cyan-950/40 to-indigo-950/40 hover:from-cyan-900/50 hover:to-indigo-900/50 border border-cyan-800/40 text-left transition-all cursor-pointer group"
-              >
-                <div>
-                  <div className="text-xs font-semibold text-cyan-200">
-                    Interactive Playground
-                  </div>
-                  <div className="text-[10px] text-cyan-400/80 mt-0.5">Test routing adapters live</div>
+              <button onClick={() => onNavigate('playground')} className="w-full relative flex items-center justify-between p-3.5 rounded-xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 hover:from-cyan-500/20 hover:to-blue-500/20 border border-cyan-500/20 transition-all group overflow-hidden">
+                <div className="text-left">
+                  <div className="text-xs font-bold text-cyan-300">Interactive Playground</div>
+                  <div className="text-[10px] text-cyan-500 mt-0.5">Test adapters live</div>
                 </div>
                 <Sparkles className="w-4 h-4 text-cyan-400" />
               </button>
             </div>
           </div>
 
-          {/* AI Providers Status Dashboard */}
-          <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3.5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                <Server className="w-4 h-4 text-cyan-400" />
-                AI Providers Status
-              </h3>
-              <button
-                onClick={() => onNavigate('providers')}
-                className="text-[11px] text-slate-400 hover:text-white"
-              >
-                Registry →
-              </button>
-            </div>
-            <div className="space-y-2 text-xs">
-              {providers.length === 0 ? (
-                <div className="py-4 text-center text-slate-500">Retrieving providers...</div>
-              ) : (
-                providers.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/40 border border-slate-800/40">
-                    <div>
-                      <div className="font-bold text-slate-200">{p.name}</div>
-                      <div className="text-[9px] text-slate-500 font-mono mt-0.5 truncate max-w-[150px]">{p.baseUrl}</div>
-                    </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                      p.enabled
-                        ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                        : 'text-slate-400 bg-slate-800 border-slate-700'
-                    }`}>
-                      {p.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Static Supported Models Checklist */}
-          <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3 shadow-sm">
-            <h3 className="font-bold text-sm text-white flex items-center gap-2">
-              <Layers className="w-4 h-4 text-indigo-400" />
-              Supported Router Models
+          {/* Providers Status */}
+          <div className="glass-panel rounded-2xl p-6 border border-white/5">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2 mb-4">
+              <Server className="w-4 h-4 text-cyan-400" /> Provider Registry
             </h3>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-800/40">
-                <div>
-                  <div className="font-semibold text-slate-200">Gemini 3.8 Flash</div>
-                  <div className="text-[10px] text-slate-400">Default general purpose model</div>
+            <div className="space-y-2">
+              {providers.length === 0 ? (
+                <div className="py-4 text-center text-zinc-500 text-xs">Fetching registry...</div>
+              ) : providers.map((p) => (
+                <div key={p.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-900 border border-white/5">
+                  <div>
+                    <div className="text-xs font-bold text-zinc-200">{p.name}</div>
+                  </div>
+                  <span className={`text-[9px] font-bold px-2 py-1 rounded-md uppercase tracking-wide border ${p.enabled ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-zinc-500 bg-zinc-800 border-zinc-700'}`}>
+                    {p.enabled ? 'Active' : 'Offline'}
+                  </span>
                 </div>
-                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                  Ready
-                </span>
-              </div>
+              ))}
+            </div>
+          </div>
 
-              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-800/40">
+          {/* Infrastructure Models Checklist */}
+          <div className="glass-panel rounded-2xl p-6 border border-white/5">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2 mb-4">
+              <Layers className="w-4 h-4 text-indigo-400" /> Inference Targets
+            </h3>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/50 border border-white/5">
                 <div>
-                  <div className="font-semibold text-slate-200">Claude 3.5 Sonnet</div>
-                  <div className="text-[10px] text-slate-400">Anthropic reasoning flagship</div>
+                  <div className="text-xs font-bold text-zinc-200">Gemini 3.8 Flash</div>
                 </div>
-                <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                  Active
-                </span>
+                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20 uppercase">Ready</span>
               </div>
-
-              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-800/40">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/50 border border-white/5">
                 <div>
-                  <div className="font-semibold text-slate-200">GPT-4o / GPT-4o-Mini</div>
-                  <div className="text-[10px] text-slate-400">OpenAI compatible benchmarks</div>
+                  <div className="text-xs font-bold text-zinc-200">Claude 3.5 Sonnet</div>
                 </div>
-                <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
-                  Active
-                </span>
+                <span className="text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded-md border border-indigo-500/20 uppercase">Mapped</span>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/50 border border-white/5">
+                <div>
+                  <div className="text-xs font-bold text-zinc-200">GPT-4o</div>
+                </div>
+                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-md border border-cyan-500/20 uppercase">Mapped</span>
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </div>

@@ -297,18 +297,18 @@ export const ProvidersView: React.FC = () => {
       {/* Header section */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h2 className="text-2xl font-extrabold tracking-tight text-white flex items-center gap-2">
             <Server className="w-5 h-5 text-cyan-400" />
             AI Provider Registry
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-zinc-400">
             Configure multi-provider routing adapters, dynamic model discovery, and resilient failover logic.
           </p>
         </div>
 
         <button
           onClick={handleOpenAdd}
-          className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-cyan-500/15"
+          className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-zinc-950 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-cyan-500/15"
         >
           <Plus className="w-4 h-4" />
           Add API Provider
@@ -344,13 +344,13 @@ export const ProvidersView: React.FC = () => {
 
       {/* Filter and search bar */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
         <input
           type="text"
           placeholder="Search registered providers by name, protocol, or ID..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-slate-900/60 border border-slate-800/80 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
+          className="w-full bg-zinc-900 border border-white/10 rounded-xl pl-9 pr-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
         />
       </div>
 
@@ -358,13 +358,13 @@ export const ProvidersView: React.FC = () => {
       {isLoading ? (
         <div className="h-64 flex flex-col items-center justify-center gap-3">
           <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
-          <p className="text-xs text-slate-400 font-medium">Resolving provider adapter configurations...</p>
+          <p className="text-xs text-zinc-400 font-medium">Resolving provider adapter configurations...</p>
         </div>
       ) : filteredProviders.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-800/80 bg-slate-900/20 p-12 text-center">
-          <Server className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <h3 className="text-sm font-bold text-slate-300">No Providers Found</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+        <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/20 p-12 text-center">
+          <Server className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
+          <h3 className="text-sm font-bold text-zinc-300">No Providers Found</h3>
+          <p className="text-xs text-zinc-500 max-w-sm mx-auto mt-1">
             There are no providers matching your filter. Add a new OpenAI, Anthropic, or Custom gateway to get started.
           </p>
         </div>
@@ -376,26 +376,27 @@ export const ProvidersView: React.FC = () => {
               <motion.div
                 key={provider.id}
                 layoutId={`provider-card-${provider.id}`}
-                className={`rounded-xl border bg-slate-950/65 overflow-hidden transition-all duration-200 ${
+                className={`glass-card rounded-2xl p-6 border border-white/5 overflow-hidden transition-all duration-200 ${
                   provider.enabled
-                    ? 'border-slate-800 hover:border-slate-700'
-                    : 'border-slate-900 opacity-60'
+                    ? ''
+                    : 'opacity-60'
                 }`}
               >
-                {/* Header Strip */}
-                <div className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-900 bg-slate-900/10">
+                {/* Provider content ... */}
+
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-white/5 bg-white/[0.02] p-5">
                   <div className="flex items-start gap-3.5">
                     <div className={`p-2.5 rounded-lg border ${
                       provider.enabled
-                        ? 'bg-cyan-500/10 border-cyan-500/25 text-cyan-400'
-                        : 'bg-slate-900 border-slate-800 text-slate-500'
+                        ? 'bg-zinc-900 border-white/10 text-cyan-400'
+                        : 'bg-zinc-900 border-white/5 text-zinc-500'
                     }`}>
                       <Server className="w-4 h-4" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="font-bold text-sm text-white">{provider.name}</h3>
-                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-slate-900 text-slate-400 border border-slate-800">
+                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-400 border border-white/5">
                           {provider.protocol}
                         </span>
                         {!provider.enabled && (
@@ -404,7 +405,7 @@ export const ProvidersView: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-slate-400 font-mono mt-1 select-all">{provider.baseUrl}</p>
+                      <p className="text-[10px] text-zinc-400 font-mono mt-1 select-all">{provider.baseUrl}</p>
                     </div>
                   </div>
 
@@ -412,12 +413,12 @@ export const ProvidersView: React.FC = () => {
                   <div className="flex items-center gap-3">
                     {/* Status Badge */}
                     <div className="text-right hidden sm:block">
-                      <div className="text-[10px] text-slate-500">Connection Status</div>
+                      <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Connection Status</div>
                       <span className={`inline-flex items-center gap-1 text-[10px] font-bold mt-1 px-2.5 py-0.5 rounded-full border ${
                         provider.connectionStatus === 'Connected'
                           ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
                           : provider.connectionStatus === 'Untested'
-                          ? 'text-slate-400 bg-slate-800 border-slate-700'
+                          ? 'text-zinc-400 bg-zinc-900 border-white/5'
                           : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
                       }`}>
                         {provider.connectionStatus === 'Connected' && <Wifi className="w-3 h-3 animate-pulse" />}
@@ -427,9 +428,9 @@ export const ProvidersView: React.FC = () => {
 
                     {/* Latency display */}
                     {provider.latencyMs && (
-                      <div className="text-right hidden sm:block border-l border-slate-900 pl-4">
-                        <div className="text-[10px] text-slate-500">Latency</div>
-                        <div className="text-xs font-semibold text-slate-200 mt-0.5 flex items-center justify-end gap-1">
+                      <div className="text-right hidden sm:block border-l border-white/5 pl-4">
+                        <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Latency</div>
+                        <div className="text-xs font-semibold text-zinc-200 mt-0.5 flex items-center justify-end gap-1">
                           <Activity className="w-3 h-3 text-cyan-400" />
                           {provider.latencyMs}ms
                         </div>
@@ -445,38 +446,38 @@ export const ProvidersView: React.FC = () => {
                     {/* Default model and capabilities */}
                     <div className="flex flex-wrap gap-x-6 gap-y-3">
                       <div>
-                        <span className="text-[10px] text-slate-500 block">Default Model</span>
-                        <code className="text-xs font-bold text-slate-200 block mt-0.5 font-mono">{provider.defaultModel}</code>
+                        <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">Default Model</span>
+                        <code className="text-xs font-bold text-zinc-200 block mt-0.5 font-mono">{provider.defaultModel}</code>
                       </div>
-                      
+
                       <div>
-                        <span className="text-[10px] text-slate-500 block">API Key Status</span>
-                        <div className="text-xs font-medium text-slate-300 mt-0.5 flex items-center gap-1">
-                          <Lock className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">API Key Status</span>
+                        <div className="text-xs font-medium text-zinc-300 mt-0.5 flex items-center gap-1">
+                          <Lock className="w-3.5 h-3.5 text-zinc-400" />
                           {provider.hasApiKey ? (
                             <span className="text-emerald-400 font-semibold">Securely Stored</span>
                           ) : (
-                            <span className="text-slate-500">No Key Configured</span>
+                            <span className="text-zinc-500">No Key Configured</span>
                           )}
                         </div>
                       </div>
 
                       {provider.lastTested && (
                         <div>
-                          <span className="text-[10px] text-slate-500 block">Last Tested</span>
-                          <span className="text-xs text-slate-400 block mt-0.5">{new Date(provider.lastTested).toLocaleString()}</span>
+                          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">Last Tested</span>
+                          <span className="text-xs text-zinc-400 block mt-0.5">{new Date(provider.lastTested).toLocaleString()}</span>
                         </div>
                       )}
                     </div>
 
                     {/* Available Models List */}
                     <div>
-                      <span className="text-[10px] text-slate-500 block mb-1.5">Configured Models ({provider.models.length})</span>
+                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5">Configured Models ({provider.models.length})</span>
                       <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                         {provider.models.map((m) => (
                           <span
                             key={m}
-                            className="text-[10px] font-medium font-mono px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800"
+                            className="text-[10px] font-medium font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-300 border border-white/5"
                           >
                             {m}
                           </span>
@@ -486,7 +487,7 @@ export const ProvidersView: React.FC = () => {
 
                     {/* Capabilities Badges */}
                     <div>
-                      <span className="text-[10px] text-slate-500 block mb-1.5">Capabilities</span>
+                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5">Capabilities</span>
                       <div className="flex flex-wrap gap-1">
                         {provider.capabilities.map((cap) => (
                           <span
@@ -501,25 +502,25 @@ export const ProvidersView: React.FC = () => {
                   </div>
 
                   {/* Right part: stats and action panel */}
-                  <div className="md:col-span-4 rounded-xl bg-slate-900/30 border border-slate-900 p-4 flex flex-col justify-between gap-4">
+                  <div className="md:col-span-4 rounded-xl bg-zinc-900/30 border border-white/5 p-4 flex flex-col justify-between gap-4">
                     {/* Tiny Analytics Summary */}
                     <div className="grid grid-cols-2 gap-2 text-center">
-                      <div className="bg-slate-950/40 rounded-lg p-2 border border-slate-900">
-                        <div className="text-[9px] text-slate-500 uppercase tracking-wider">Usage</div>
-                        <div className="text-sm font-bold text-slate-200 mt-0.5">{provider.usageCount || 0} reqs</div>
+                      <div className="bg-zinc-950 rounded-lg p-2 border border-white/5">
+                        <div className="text-[9px] text-zinc-500 uppercase tracking-wider">Usage</div>
+                        <div className="text-sm font-bold text-zinc-200 mt-0.5">{provider.usageCount || 0} reqs</div>
                       </div>
-                      <div className="bg-slate-950/40 rounded-lg p-2 border border-slate-900">
-                        <div className="text-[9px] text-slate-500 uppercase tracking-wider">Error Rate</div>
-                        <div className="text-sm font-bold text-slate-200 mt-0.5">{(provider.errorRate || 0) * 100}%</div>
+                      <div className="bg-zinc-950 rounded-lg p-2 border border-white/5">
+                        <div className="text-[9px] text-zinc-500 uppercase tracking-wider">Error Rate</div>
+                        <div className="text-sm font-bold text-zinc-200 mt-0.5">{(provider.errorRate || 0) * 100}%</div>
                       </div>
                     </div>
 
                     {/* Actions Panel */}
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-900">
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
                       <button
                         onClick={() => handleTestConnection(provider.id)}
                         disabled={testingId === provider.id}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                       >
                         <Wifi className={`w-3.5 h-3.5 ${testingId === provider.id ? 'animate-pulse text-cyan-400' : ''}`} />
                         {testingId === provider.id ? 'Testing...' : 'Test Connection'}
@@ -528,7 +529,7 @@ export const ProvidersView: React.FC = () => {
                       <button
                         onClick={() => handleRefreshModels(provider.id)}
                         disabled={refreshingId === provider.id || isGemini}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                         title={isGemini ? "Gemini models lists are static" : "Dynamic discovery models"}
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${refreshingId === provider.id ? 'animate-spin' : ''}`} />
@@ -550,7 +551,7 @@ export const ProvidersView: React.FC = () => {
                       <div className="flex gap-1">
                         <button
                           onClick={() => handleOpenEdit(provider)}
-                          className="flex-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          className="flex-1 px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
                         >
                           <Edit2 className="w-3 h-3" />
                           Edit
@@ -577,21 +578,21 @@ export const ProvidersView: React.FC = () => {
 
       {/* Add / Edit Provider Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            className="bg-zinc-950 border border-white/10 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
           >
             {/* Modal Header */}
-            <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+            <div className="px-6 py-5 border-b border-white/10 flex items-center justify-between">
               <h3 className="font-bold text-base text-white flex items-center gap-2">
                 <Sliders className="w-5 h-5 text-cyan-400" />
                 {editingProvider ? 'Edit Provider Integration' : 'Register AI Provider Gateway'}
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white transition cursor-pointer text-sm"
+                className="text-zinc-400 hover:text-white transition cursor-pointer text-sm"
               >
                 ✕
               </button>
@@ -602,7 +603,7 @@ export const ProvidersView: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* ID - unique key */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Provider ID</label>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">Provider ID</label>
                   <input
                     type="text"
                     required
@@ -610,21 +611,21 @@ export const ProvidersView: React.FC = () => {
                     placeholder="openai-gateway"
                     value={id}
                     onChange={(e) => setId(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
                   />
-                  <span className="text-[10px] text-slate-500">Unique identifier, lowercase without spaces.</span>
+                  <span className="text-[10px] text-zinc-500">Unique identifier, lowercase without spaces.</span>
                 </div>
 
                 {/* Name */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Provider Display Name</label>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">Provider Display Name</label>
                   <input
                     type="text"
                     required
                     placeholder="My Custom Provider Gateway"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
               </div>
@@ -632,12 +633,12 @@ export const ProvidersView: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* Protocol */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">API Protocol</label>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">API Protocol</label>
                   <select
                     disabled={editingProvider?.id === 'gemini'}
                     value={protocol}
                     onChange={(e) => handleProtocolChange(e.target.value as ProviderProtocol)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 cursor-pointer disabled:opacity-50"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 cursor-pointer disabled:opacity-50"
                   >
                     {PROTOCOLS.map((p) => (
                       <option key={p.value} value={p.value}>
@@ -649,7 +650,7 @@ export const ProvidersView: React.FC = () => {
 
                 {/* Base URL */}
                 <div className="sm:col-span-2 space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Base Connection URL</label>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">Base Connection URL</label>
                   <input
                     type="url"
                     required
@@ -657,14 +658,14 @@ export const ProvidersView: React.FC = () => {
                     placeholder="https://api.openai.com/v1"
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
                   />
                 </div>
               </div>
 
               {/* API Key / Credential */}
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">
                   API Key / Secret Credential
                 </label>
                 <div className="relative">
@@ -673,50 +674,50 @@ export const ProvidersView: React.FC = () => {
                     placeholder={editingProvider?.hasApiKey ? '•••••••••••••••• (Unchanged unless overwritten)' : 'Enter secure API secret key...'}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-3.5 pr-10 py-2.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl pl-4 pr-12 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500 font-mono"
                   />
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
                   >
                     {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <span className="text-[10px] text-slate-500">Credentials are securely kept on the server and are never revealed to client components.</span>
+                <span className="text-[10px] text-zinc-500">Credentials are securely kept on the server and are never revealed to client components.</span>
               </div>
 
               {/* Models Settings */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Default Model ID</label>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">Default Model ID</label>
                   <input
                     type="text"
                     required
                     placeholder="gpt-4o-mini"
                     value={defaultModel}
                     onChange={(e) => setDefaultModel(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Available Model List</label>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">Available Model List</label>
                   <input
                     type="text"
                     required
                     placeholder="gpt-4o, gpt-4o-mini, o1-mini"
                     value={modelsInput}
                     onChange={(e) => setModelsInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono"
                   />
-                  <span className="text-[10px] text-slate-500">Comma-separated lists of model identifiers.</span>
+                  <span className="text-[10px] text-zinc-500">Comma-separated lists of model identifiers.</span>
                 </div>
               </div>
 
               {/* Capabilities Checkboxes */}
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-2">Supported Capabilities</label>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Supported Capabilities</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {CAPABILITIES.map((cap) => {
                     const isChecked = selectedCapabilities.includes(cap.value);
@@ -725,20 +726,20 @@ export const ProvidersView: React.FC = () => {
                         type="button"
                         key={cap.value}
                         onClick={() => toggleCapability(cap.value)}
-                        className={`flex items-start text-left gap-3 p-2.5 rounded-lg border transition-all cursor-pointer select-none ${
+                        className={`flex items-start text-left gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${
                           isChecked
-                            ? 'bg-cyan-500/5 border-cyan-500/20 text-slate-200'
-                            : 'bg-slate-950/20 border-slate-800/80 text-slate-400 hover:border-slate-800'
+                            ? 'bg-cyan-500/5 border-cyan-500/20 text-zinc-200'
+                            : 'bg-zinc-950/20 border-white/5 text-zinc-400 hover:border-white/10'
                         }`}
                       >
                         <div className={`w-4 h-4 rounded mt-0.5 flex items-center justify-center border transition-colors ${
-                          isChecked ? 'bg-cyan-500 border-cyan-500 text-slate-950' : 'border-slate-700'
+                          isChecked ? 'bg-cyan-500 border-cyan-500 text-zinc-950' : 'border-zinc-700'
                         }`}>
                           {isChecked && <Check className="w-3 h-3 stroke-[3px]" />}
                         </div>
                         <div>
                           <div className="text-[11px] font-bold text-white">{cap.label}</div>
-                          <div className="text-[9px] text-slate-500 mt-0.5">{cap.description}</div>
+                          <div className="text-[9px] text-zinc-500 mt-0.5">{cap.description}</div>
                         </div>
                       </button>
                     );
@@ -747,17 +748,17 @@ export const ProvidersView: React.FC = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg cursor-pointer"
+                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-lg cursor-pointer shadow-lg shadow-cyan-500/15"
+                  className="px-5 py-2 bg-cyan-500 hover:bg-cyan-400 text-zinc-950 font-bold text-xs rounded-lg cursor-pointer shadow-lg shadow-cyan-500/15"
                 >
                   Save Integration
                 </button>

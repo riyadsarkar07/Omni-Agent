@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS public.projects (
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h2 className="text-xl font-bold text-white tracking-tight">Platform Configuration & Status</h2>
+        <h2 className="text-2xl font-extrabold tracking-tight">Platform Configuration & Status</h2>
         <p className="text-xs text-slate-400">
           Inspect backend status, database engine, Gemini API keys, and enterprise security policies.
         </p>
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS public.projects (
       {/* Engine & Database Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Gemini Engine */}
-        <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3">
+        <div className="glass-card rounded-2xl p-6 border border-white/5 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS public.projects (
         </div>
 
         {/* Database Engine */}
-        <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3">
+        <div className="glass-card rounded-2xl p-6 border border-white/5 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS public.projects (
       </div>
 
       {/* Supabase SQL Migration Blueprint */}
-      <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3">
+      <div className="glass-card rounded-2xl p-6 border border-white/5 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileCode2 className="w-4 h-4 text-cyan-400" />
@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS public.projects (
       </div>
 
       {/* Default Model Preferences */}
-      <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-4">
+      <div className="glass-card rounded-2xl p-6 border border-white/5 space-y-4">
         <h3 className="font-bold text-sm text-white flex items-center gap-2">
           <Settings className="w-4 h-4 text-cyan-400" />
           Default Agent Preferences
@@ -176,11 +176,11 @@ CREATE TABLE IF NOT EXISTS public.projects (
         <form onSubmit={handleSaveDefaults} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Default Model</label>
+              <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Default Model</label>
               <select
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 cursor-pointer"
+                className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/20 cursor-pointer"
               >
                 <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended Workhorse)</option>
                 <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Reasoning & Coding)</option>
@@ -190,11 +190,11 @@ CREATE TABLE IF NOT EXISTS public.projects (
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Admin Contact Email</label>
+              <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Admin Contact Email</label>
               <input
                 type="email"
                 defaultValue="admin@omniagent.io"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/20"
               />
             </div>
           </div>

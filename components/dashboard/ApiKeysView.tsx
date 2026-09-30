@@ -107,8 +107,8 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight">API Key Management</h2>
-          <p className="text-xs text-slate-400">
+          <h2 className="text-2xl font-extrabold tracking-tight text-white">API Key Management</h2>
+          <p className="text-sm text-zinc-400">
             Generate and revoke scoped credentials for external servers, microservices, and apps.
           </p>
         </div>
@@ -117,7 +117,7 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
             setTargetProjectId(activeProject?.id || projects[0]?.id || '');
             setIsCreateOpen(true);
           }}
-          className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-cyan-500/20"
+          className="px-6 py-2 rounded-xl bg-white text-zinc-950 font-bold text-sm flex items-center gap-2 transition-all cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           Generate New API Key
@@ -125,62 +125,62 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
       </div>
 
       {/* Security Advisory Card */}
-      <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-4 flex items-start gap-3 text-xs text-amber-200">
-        <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+      <div className="glass-card rounded-2xl p-6 border border-white/5 flex items-start gap-4 text-sm text-zinc-300">
+        <ShieldAlert className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <div className="font-bold text-amber-300">Salted SHA-256 Storage Guarantee</div>
-          <p className="text-slate-300 leading-relaxed text-[11px]">
+          <div className="font-bold text-white">Salted SHA-256 Storage Guarantee</div>
+          <p className="text-zinc-400 leading-relaxed">
             Raw keys are never stored in plaintext on disk or in the database. When you generate a key, it is displayed once. Keep keys secure and never commit them to client-side frontend code or public repositories.
           </p>
         </div>
       </div>
 
       {/* Keys Table */}
-      <div className="rounded-xl bg-slate-900/60 border border-slate-800 overflow-hidden shadow-sm">
+      <div className="glass-panel rounded-2xl overflow-hidden border border-white/5">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-xs divide-y divide-white/5">
             <thead>
-              <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400 font-semibold">
-                <th className="py-3 px-4">Key Name</th>
-                <th className="py-3 px-4">Prefix Token</th>
-                <th className="py-3 px-4">Environment</th>
-                <th className="py-3 px-4">Rate Limit</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Last Used</th>
-                <th className="py-3 px-4">Created</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+              <tr className="bg-zinc-900/50 text-[10px] uppercase tracking-wider text-zinc-500">
+                <th className="py-4 px-6">Key Name</th>
+                <th className="py-4 px-6">Prefix Token</th>
+                <th className="py-4 px-6">Environment</th>
+                <th className="py-4 px-6">Rate Limit</th>
+                <th className="py-4 px-6">Status</th>
+                <th className="py-4 px-6">Last Used</th>
+                <th className="py-4 px-6">Created</th>
+                <th className="py-4 px-6 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-white/5">
               {apiKeys.map((key) => {
                 const isActive = key.status === 'active';
                 const isProd = key.environment === 'production';
                 return (
-                  <tr key={key.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-slate-200 flex items-center gap-2">
-                      <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
+                  <tr key={key.id} className="hover:bg-white/5 transition-colors">
+                    <td className="py-4 px-6 font-medium text-white flex items-center gap-3">
+                      <KeyRound className="w-4 h-4 text-zinc-500" />
                       {key.name}
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-400">
+                    <td className="py-4 px-6 font-mono text-zinc-400">
                       {key.key_prefix}
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-4 px-6">
                       <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase ${
                           isProd
                             ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
-                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                         }`}
                       >
                         {key.environment}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-slate-300 font-medium">
+                    <td className="py-4 px-6 text-zinc-300">
                       {key.rate_limit_rpm} RPM
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-4 px-6">
                       <span
-                        className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                        className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                           isActive
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                             : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
@@ -190,7 +190,7 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
                         {key.status}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-slate-400 text-[11px]">
+                    <td className="py-4 px-6 text-zinc-400">
                       {key.last_used_at
                         ? new Date(key.last_used_at).toLocaleDateString([], {
                             month: 'short',
@@ -200,17 +200,17 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
                           })
                         : 'Never'}
                     </td>
-                    <td className="py-3 px-4 text-slate-400 text-[11px]">
+                    <td className="py-4 px-6 text-zinc-400">
                       {new Date(key.created_at).toLocaleDateString([], {
                         month: 'short',
                         day: 'numeric',
                       })}
                     </td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-4 px-6 text-right">
                       {isActive && (
                         <button
                           onClick={() => handleRevokeKey(key.id)}
-                          className="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-[11px] font-semibold transition-colors cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-colors cursor-pointer"
                         >
                           Revoke
                         </button>
@@ -227,45 +227,45 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
       {/* Create Key Modal */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-cyan-400" />
+          <div className="w-full max-w-md bg-zinc-950 border border-white/10 rounded-3xl shadow-2xl p-8 space-y-6">
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <h3 className="font-bold text-lg text-white flex items-center gap-3">
+                <KeyRound className="w-5 h-5 text-white" />
                 Generate Project API Key
               </h3>
               <button
                 onClick={() => setIsCreateOpen(false)}
-                className="text-slate-400 hover:text-slate-200 cursor-pointer"
+                className="text-zinc-400 hover:text-white cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreateKey} className="space-y-4">
               {error && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
                   {error}
                 </div>
               )}
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Key Name *</label>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-zinc-300">Key Name *</label>
                 <input
                   type="text"
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
                   placeholder="e.g. Mobile App Backend, Production Worker"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20"
                   required
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Project</label>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-zinc-300">Project</label>
                 <select
                   value={targetProjectId}
                   onChange={(e) => setTargetProjectId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20"
                 >
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -275,44 +275,44 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Environment</label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-zinc-300">Environment</label>
                   <select
                     value={environment}
                     onChange={(e) => setEnvironment(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20"
                   >
                     <option value="production">Production (ua_live_)</option>
                     <option value="development">Development (ua_test_)</option>
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Rate Limit (RPM)</label>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-zinc-300">Rate Limit (RPM)</label>
                   <input
                     type="number"
                     min="5"
                     max="1000"
                     value={rateLimitRpm}
                     onChange={(e) => setRateLimitRpm(parseInt(e.target.value) || 60)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/20"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-end gap-3">
+              <div className="pt-4 border-t border-white/5 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setIsCreateOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-all disabled:opacity-40 cursor-pointer shadow-md shadow-cyan-500/20"
+                  className="px-6 py-2.5 rounded-xl bg-white text-zinc-950 text-sm font-bold transition-all disabled:opacity-40 cursor-pointer"
                 >
                   {isSubmitting ? 'Generating...' : 'Generate API Key'}
                 </button>
@@ -325,24 +325,24 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
       {/* Secret Reveal Modal (Shown ONCE) */}
       {revealedKey && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-slate-900 border border-amber-500/40 rounded-2xl shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3 text-amber-400">
-              <AlertTriangle className="w-6 h-6 shrink-0" />
+          <div className="w-full max-w-lg bg-zinc-950 border border-white/10 rounded-3xl shadow-2xl p-8 space-y-6">
+            <div className="flex items-center gap-4 text-amber-500">
+              <AlertTriangle className="w-8 h-8 shrink-0" />
               <div>
-                <h3 className="font-bold text-base text-white">Save Your API Key Now</h3>
-                <p className="text-xs text-amber-300/90">
+                <h3 className="font-bold text-lg text-white">Save Your API Key Now</h3>
+                <p className="text-sm text-zinc-400">
                   This key will NEVER be shown again. Store it securely in your server environment.
                 </p>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-              <div className="text-[11px] font-semibold text-slate-400">{revealedKey.name}</div>
-              <div className="flex items-center justify-between gap-2 font-mono text-xs text-cyan-300 break-all select-all">
-                <span>{revealedKey.rawKey}</span>
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-white/5 space-y-3">
+              <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">{revealedKey.name}</div>
+              <div className="flex items-center justify-between gap-4 font-mono text-sm text-white bg-black/50 p-4 rounded-xl border border-white/5">
+                <span className="break-all">{revealedKey.rawKey}</span>
                 <button
                   onClick={() => copyToClipboard(revealedKey.rawKey)}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 shrink-0 font-sans font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white border border-white/10 shrink-0 font-sans font-semibold text-xs flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   {copied ? 'Copied!' : 'Copy'}
@@ -353,7 +353,7 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
             <div className="text-right">
               <button
                 onClick={() => setRevealedKey(null)}
-                className="px-5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs cursor-pointer shadow-md shadow-cyan-500/20"
+                className="px-6 py-2.5 rounded-xl bg-white text-zinc-950 font-bold text-sm cursor-pointer"
               >
                 I have copied my key securely
               </button>

@@ -110,34 +110,34 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-white tracking-tight">Conversation Memory & History</h2>
-        <p className="text-xs text-slate-400">
+      <div className="glass-panel p-6 rounded-2xl border border-white/5">
+        <h2 className="text-2xl font-extrabold text-white tracking-tight">Conversation Memory & History</h2>
+        <p className="text-sm text-zinc-400">
           Inspect multi-turn state, turn token consumption, and model output records.
         </p>
       </div>
 
-      <div className="h-[calc(100vh-13rem)] flex flex-col md:flex-row gap-4 bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+      <div className="h-[calc(100vh-13rem)] flex flex-col md:flex-row gap-4 glass-panel rounded-2xl bg-zinc-950/40 border border-white/5 overflow-hidden">
         {/* Left: Conversation List */}
-        <div className="w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-950/40">
-          <div className="p-3 border-b border-slate-800 space-y-2">
+        <div className="w-full md:w-80 border-r border-white/5 flex flex-col bg-zinc-950">
+          <div className="p-3 border-b border-white/5 space-y-2">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search conversations..."
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                className="w-full bg-zinc-900 border border-white/5 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
               />
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+          <div className="flex-1 overflow-y-auto divide-y divide-white/5">
             {filteredConversations.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-400 space-y-1">
-                <MessageCircle className="w-6 h-6 mx-auto text-slate-600 mb-2" />
-                <p className="font-semibold text-slate-300">No conversations recorded</p>
+              <div className="p-6 text-center text-xs text-zinc-400 space-y-1">
+                <MessageCircle className="w-6 h-6 mx-auto text-zinc-600 mb-2" />
+                <p className="font-semibold text-zinc-300">No conversations recorded</p>
                 <p className="text-[11px]">Conversations created in Playground or via REST API will appear here.</p>
               </div>
             ) : (
@@ -151,27 +151,27 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
                     className={`p-3.5 text-left cursor-pointer transition-colors space-y-1.5 group ${
                       isSelected
                         ? 'bg-cyan-500/10 border-l-2 border-cyan-400'
-                        : 'hover:bg-slate-800/40'
+                        : 'hover:bg-zinc-800/40'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <h4
                         className={`text-xs font-semibold line-clamp-1 ${
-                          isSelected ? 'text-cyan-300' : 'text-slate-200 group-hover:text-white'
+                          isSelected ? 'text-cyan-300' : 'text-zinc-200 group-hover:text-white'
                         }`}
                       >
                         {c.title}
                       </h4>
                       <button
                         onClick={(e) => handleDeleteConversation(c.id, e)}
-                        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-0.5 transition-opacity"
+                        className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-rose-400 p-0.5 transition-opacity"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400">
                       <span className="truncate max-w-[130px]">{agent?.name || 'Agent'}</span>
                       <span>
                         {new Date(c.updated_at).toLocaleDateString([], {
@@ -188,21 +188,21 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
         </div>
 
         {/* Right: Messages Inspector */}
-        <div className="flex-1 flex flex-col bg-slate-900/30">
+        <div className="flex-1 flex flex-col bg-zinc-900/10">
           {selectedConv ? (
             <>
               {/* Header */}
-              <div className="h-14 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+              <div className="h-14 px-6 border-b border-white/5 flex items-center justify-between bg-zinc-950/50">
                 <div>
                   <h3 className="font-bold text-xs text-white line-clamp-1">{selectedConv.title}</h3>
-                  <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                  <div className="text-[10px] text-zinc-400 flex items-center gap-2">
                     <span className="font-mono">{selectedConv.id}</span>
                     <span>•</span>
                     <span>Agent: {selectedAgent?.name || 'Standard'}</span>
                   </div>
                 </div>
 
-                <div className="text-xs font-semibold text-slate-400">
+                <div className="text-xs font-semibold text-zinc-400">
                   {selectedMessages.length} Messages
                 </div>
               </div>
@@ -210,11 +210,11 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
               {/* Messages Body */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {isLoadingMessages ? (
-                  <div className="flex items-center justify-center h-full text-xs text-slate-400">
+                  <div className="flex items-center justify-center h-full text-xs text-zinc-400">
                     Loading messages...
                   </div>
                 ) : selectedMessages.length === 0 ? (
-                  <div className="text-center py-12 text-xs text-slate-400">
+                  <div className="text-center py-12 text-xs text-zinc-400">
                     No message turns found in this thread.
                   </div>
                 ) : (
@@ -233,12 +233,12 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
                         <div
                           className={`max-w-[80%] rounded-xl p-3.5 text-xs space-y-1.5 ${
                             isUser
-                              ? 'bg-cyan-600 text-white rounded-tr-none'
-                              : 'bg-slate-800 text-slate-200 border border-slate-700/60 rounded-tl-none'
+                              ? 'bg-cyan-500/10 text-cyan-100 rounded-tr-none'
+                              : 'bg-zinc-900 text-zinc-200 border border-white/5 rounded-tl-none'
                           }`}
                         >
                           {msg.tool_calls && msg.tool_calls.length > 0 && (
-                            <div className="p-2 rounded bg-slate-950/80 border border-slate-800 font-mono text-[10px] text-cyan-400 flex items-center gap-1.5">
+                            <div className="p-2 rounded bg-zinc-950/80 border border-white/5 font-mono text-[10px] text-cyan-400 flex items-center gap-1.5">
                               <Wrench className="w-3 h-3" />
                               Executed: {msg.tool_calls.map((t) => t.name).join(', ')}
                             </div>
@@ -252,8 +252,8 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
                           </div>
                         </div>
                         {isUser && (
-                          <div className="w-7 h-7 rounded-lg bg-slate-700 flex items-center justify-center shrink-0">
-                            <User className="w-3.5 h-3.5 text-slate-300" />
+                          <div className="w-7 h-7 rounded-lg bg-zinc-700 flex items-center justify-center shrink-0">
+                            <User className="w-3.5 h-3.5 text-zinc-300" />
                           </div>
                         )}
                       </div>
