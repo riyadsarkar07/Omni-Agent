@@ -65,8 +65,20 @@ export async function authenticateApiRequest(
     };
   }
 
-  // 3. Hash key and verify in database
-  const keyHash = hashApiKey(providedToken);
+  let keyHash: string;
+  try {
+    keyHash = hashApiKey(providedToken);
+  } catch {
+    return {
+      errorResponse: NextResponse.json(
+        {
+          error: 'Service Unavailable',
+          message: 'API key authentication is not configured for production.',
+        },
+        { status: 503 }
+      ),
+    };
+  }
   let apiKey = await DatabaseStore.getApiKeyByHash(keyHash);
 
   if (!apiKey && !isProduction() && providedToken === DEMO_PRESET_KEY) {
