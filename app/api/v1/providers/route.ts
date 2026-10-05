@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       type: option.id,
       protocol,
       baseUrl,
-      apiKey: body.apiKey ? String(body.apiKey) : '',
+      apiKey: body.apiKey ? String(body.apiKey).trim() : '',
       enabled: body.enabled !== false,
       defaultModel: modelId,
       models,

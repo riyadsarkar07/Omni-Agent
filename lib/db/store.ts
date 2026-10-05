@@ -1518,15 +1518,16 @@ export class DatabaseStore {
     const base = originalProvider || memoryStore.providers[memoryIdx];
     if (!base) return null;
 
-    const nextKey = updates.apiKey === undefined ? base.apiKey || '' : updates.apiKey;
-    const encryptedKey = nextKey ? encryptProviderSecret(nextKey) : '';
+    const incomingKey = typeof updates.apiKey === 'string' ? updates.apiKey.trim() : undefined;
+    const replaceKey = Boolean(incomingKey);
+    const nextKey = replaceKey ? incomingKey! : base.apiKey || '';
     const merged: AIProvider = {
       ...base,
       ...updates,
       type: updates.type || base.type || kindFromProtocol(updates.protocol || base.protocol),
       protocol: updates.protocol || base.protocol,
       apiKey: nextKey,
-      hasApiKey: Boolean(nextKey),
+      hasApiKey: Boolean(nextKey || base.hasApiKey),
       metadata: updates.metadata ? { ...(base.metadata || {}), ...updates.metadata } : base.metadata,
       updated_at: new Date().toISOString(),
     };
@@ -1537,9 +1538,13 @@ export class DatabaseStore {
 
     if (supabase) {
       try {
+        const patch = toDbProviderRow(merged, replaceKey ? encryptProviderSecret(incomingKey!) : '');
+        if (!replaceKey) {
+          delete (patch as { api_key?: string }).api_key;
+        }
         const { data: updated, error } = await supabase
           .from('ai_providers')
-          .update(toDbProviderRow(merged, encryptedKey))
+          .update(patch)
           .eq('id', id)
           .select()
           .single();

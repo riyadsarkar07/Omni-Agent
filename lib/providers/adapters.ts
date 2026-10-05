@@ -298,27 +298,21 @@ export class OpenAIAdapter {
       return { success: false, status: 'Invalid Base URL', error: 'Base URL is required for OpenAI-compatible providers' };
     }
 
-    const headers = this.getHeaders(provider);
+    const apiKey = (provider.apiKey || '').trim();
+    if (!apiKey) {
+      return {
+        success: false,
+        status: 'Authentication Failed',
+        error: 'No API key available. Paste the key and Save Provider, then test again.',
+        reachable: false,
+        authenticated: false,
+      };
+    }
+
+    const headers = this.getHeaders({ ...provider, apiKey });
     let reachable = false;
     let authenticated = false;
-    let discovered: string[] = [];
-
-    try {
-      const modelsRes = await this.request(provider, joinProviderUrl(baseUrl, '/models'), {
-        method: 'GET',
-        headers,
-      });
-      reachable = true;
-      if (modelsRes.ok) {
-        authenticated = true;
-        const data = await modelsRes.json();
-        if (data && Array.isArray(data.data)) {
-          discovered = data.data.map((m: { id?: string }) => m.id).filter(Boolean) as string[];
-        }
-      }
-    } catch {
-      // Some OpenAI-compatible gateways do not expose GET /models. Fall through to chat.
-    }
+    const discovered: string[] = provider.models || [];
 
     const model = provider.defaultModel || discovered[0] || provider.models[0];
     if (!model) {
@@ -369,7 +363,7 @@ export class OpenAIAdapter {
         return {
           success: false,
           status: 'Authentication Failed',
-          error: 'Invalid API key provided',
+          error: await readSafeError(res),
           reachable: true,
           authenticated: false,
           models: discovered,

@@ -670,7 +670,7 @@ export const ProvidersView: React.FC = () => {
                   <input
                     type={showApiKey ? 'text' : 'password'}
                     autoComplete="off"
-                    placeholder={editingProvider?.hasApiKey ? '••••••••••••••••' : 'Enter API key'}
+                    placeholder={editingProvider?.hasApiKey ? 'Leave blank to keep stored key' : 'Enter API key'}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     className="w-full bg-zinc-900 border border-white/10 rounded-xl pl-4 pr-20 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500 font-mono"
@@ -684,6 +684,9 @@ export const ProvidersView: React.FC = () => {
                     {showApiKey ? 'Hide' : 'Show'}
                   </button>
                 </div>
+                {editingProvider?.hasApiKey && !apiKey.trim() ? (
+                  <p className="text-[10px] text-zinc-500">A key is already stored. Paste a new key only if you want to replace it.</p>
+                ) : null}
               </div>
 
               <div className="space-y-1.5">
