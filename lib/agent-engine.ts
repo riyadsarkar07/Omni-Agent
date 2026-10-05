@@ -86,7 +86,7 @@ export class AgentEngine {
       };
 
       try {
-        const response = await ModelRouter.generate(providerId, params);
+        const response = await ModelRouter.generate(providerId, params, agent.fallback_provider_id);
         const finalResponseText = response.text || '';
         const latencyMs = Date.now() - startTime;
         const promptTokens = response.usage?.promptTokens || Math.ceil(message.length / 4) + 60;
@@ -314,6 +314,18 @@ export class AgentEngine {
         model: modelToUse,
       };
     } catch (err: unknown) {
+      if (agent.fallback_provider_id && agent.fallback_provider_id !== providerId) {
+        const fallbackModel = agent.fallback_model || agent.model || 'gemini-3.8-flash';
+        return await AgentEngine.executeChat({
+          ...options,
+          overrideModel: fallbackModel,
+          agent: {
+            ...agent,
+            provider_id: agent.fallback_provider_id,
+            fallback_provider_id: undefined,
+          },
+        });
+      }
       const latencyMs = Date.now() - startTime;
       const errorMessage = (err as Error).message || 'Gemini API Error';
 
@@ -387,7 +399,7 @@ export class AgentEngine {
       };
 
       try {
-        const stream = await ModelRouter.generateStream(providerId, params);
+        const stream = await ModelRouter.generateStream(providerId, params, agent.fallback_provider_id);
         const reader = stream.getReader();
         const encoderStream = new TextEncoder();
         let accumulatedText = '';

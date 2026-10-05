@@ -354,14 +354,38 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                   </div>
                   <div className="space-y-2">
                     <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Primary Model</label>
-                    <select value={model} onChange={(e) => setModel(e.target.value)} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors cursor-pointer">
-                      {providers.find((p) => p.id === providerId)?.models?.map((m: string) => <option key={m} value={m}>{m}</option>) || (
-                        <>
-                          <option value="gemini-3.8-flash">gemini-3.8-flash</option>
-                          <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
-                        </>
-                      )}
+                    {providers.find((p) => p.id === providerId)?.models?.length ? (
+                      <select value={model} onChange={(e) => setModel(e.target.value)} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 transition-colors cursor-pointer">
+                        {providers.find((p) => p.id === providerId)?.models?.map((m: string) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    ) : (
+                      <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Enter model ID" className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-mono" />
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Fallback Provider</label>
+                    <select value={fallbackProviderId} onChange={(e) => {
+                      setFallbackProviderId(e.target.value);
+                      const matched = providers.find((p) => p.id === e.target.value);
+                      if (matched) setFallbackModel(matched.defaultModel || matched.models?.[0] || '');
+                    }} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white cursor-pointer">
+                      <option value="">None</option>
+                      {providers.filter((p) => p.enabled && p.id !== providerId).map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
                     </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Fallback Model</label>
+                    {providers.find((p) => p.id === fallbackProviderId)?.models?.length ? (
+                      <select value={fallbackModel} onChange={(e) => setFallbackModel(e.target.value)} className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white cursor-pointer">
+                        {providers.find((p) => p.id === fallbackProviderId)?.models?.map((m: string) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    ) : (
+                      <input value={fallbackModel} onChange={(e) => setFallbackModel(e.target.value)} placeholder="Optional fallback model" className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-mono" />
+                    )}
                   </div>
                 </div>
               </div>

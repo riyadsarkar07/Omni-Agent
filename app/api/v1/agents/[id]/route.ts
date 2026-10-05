@@ -6,7 +6,10 @@ import { DatabaseStore } from '@/lib/db/store';
 const updateAgentSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   description: z.string().max(250).optional(),
-  model: z.enum(['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest']).optional(),
+  model: z.string().min(1).max(200).optional(),
+  provider_id: z.string().optional(),
+  fallback_provider_id: z.string().nullable().optional(),
+  fallback_model: z.string().nullable().optional(),
   system_instructions: z.string().min(5).max(10000).optional(),
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().min(0).max(1).optional(),
@@ -59,9 +62,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       );
     }
 
+    const payload = parseResult.data;
     const updated = await DatabaseStore.updateAgent(id, {
-      ...parseResult.data,
-      max_output_tokens: parseResult.data.max_output_tokens === null ? undefined : parseResult.data.max_output_tokens,
+      ...payload,
+      fallback_provider_id: payload.fallback_provider_id ?? undefined,
+      fallback_model: payload.fallback_model ?? undefined,
+      max_output_tokens: payload.max_output_tokens === null ? undefined : payload.max_output_tokens,
     });
 
     await DatabaseStore.logAudit({

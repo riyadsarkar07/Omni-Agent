@@ -3,6 +3,9 @@ import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, 
 import { AIProvider } from '../providers/types';
 import { hashApiKey } from '../auth/api-key';
 import { getAdminEmail, getAdminPassword, isProduction } from '../config';
+import { encryptProviderSecret } from '../providers/secrets';
+import { kindFromProtocol, slugifyProviderId } from '../providers/catalog';
+import { mapRowToProvider, toDbProviderRow, toPublicProvider } from '../providers/mapping';
 import crypto from 'crypto';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -264,11 +267,15 @@ if (!globalForStore.memoryStore) {
       {
         id: 'gemini',
         name: 'Google Gemini (Native)',
+        type: 'gemini',
         protocol: 'gemini',
         baseUrl: 'https://generativelanguage.googleapis.com',
         apiKey: process.env.GEMINI_API_KEY || '',
+        hasApiKey: Boolean(process.env.GEMINI_API_KEY),
         enabled: true,
-        defaultModel: 'gemini-3.8-flash',
+        isSystem: true,
+        isDefault: true,
+        defaultModel: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
         models: [
           'gemini-3.8-flash',
           'gemini-3.1-pro-preview',
@@ -286,119 +293,13 @@ if (!globalForStore.memoryStore) {
           'VIDEO_GENERATION',
           'MUSIC_GENERATION'
         ],
-        connectionStatus: 'Connected',
+        connectionStatus: process.env.GEMINI_API_KEY ? 'Connected' : 'Untested',
         lastTested: new Date().toISOString(),
         latencyMs: 120,
         usageCount: 42,
         errorRate: 0,
-        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 'openai',
-        name: 'OpenAI Developer Platform',
-        protocol: 'openai',
-        baseUrl: 'https://api.openai.com/v1',
-        apiKey: '',
-        enabled: false,
-        defaultModel: 'gpt-4o-mini',
-        models: ['gpt-4o', 'gpt-4o-mini', 'o1-mini'],
-        capabilities: ['TEXT', 'VISION', 'STREAMING', 'TOOL_CALLING', 'FUNCTION_CALLING', 'STRUCTURED_OUTPUT'],
-        connectionStatus: 'Untested',
-        lastTested: null,
-        latencyMs: null,
-        usageCount: 0,
-        errorRate: 0,
-        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 'anthropic',
-        name: 'Anthropic Claude Engine',
-        protocol: 'anthropic',
-        baseUrl: 'https://api.anthropic.com/v1',
-        apiKey: '',
-        enabled: false,
-        defaultModel: 'claude-3-5-haiku-latest',
-        models: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'],
-        capabilities: ['TEXT', 'VISION', 'STREAMING', 'STRUCTURED_OUTPUT'],
-        connectionStatus: 'Untested',
-        lastTested: null,
-        latencyMs: null,
-        usageCount: 0,
-        errorRate: 0,
-        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 'conduit',
-        name: 'Conduit',
-        protocol: 'openai',
-        baseUrl: '',
-        apiKey: '',
-        enabled: false,
-        defaultModel: '',
-        models: [],
-        capabilities: ['TEXT', 'STREAMING', 'TOOL_CALLING'],
-        connectionStatus: 'Untested',
-        lastTested: null,
-        latencyMs: null,
-        usageCount: 0,
-        errorRate: 0,
-        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 'openai-compatible',
-        name: 'OpenAI-Compatible Provider',
-        protocol: 'openai',
-        baseUrl: '',
-        apiKey: '',
-        enabled: false,
-        defaultModel: '',
-        models: [],
-        capabilities: ['TEXT', 'STREAMING', 'TOOL_CALLING', 'FUNCTION_CALLING'],
-        connectionStatus: 'Untested',
-        lastTested: null,
-        latencyMs: null,
-        usageCount: 0,
-        errorRate: 0,
-        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 'anthropic-compatible',
-        name: 'Anthropic-Compatible Provider',
-        protocol: 'anthropic',
-        baseUrl: '',
-        apiKey: '',
-        enabled: false,
-        defaultModel: '',
-        models: [],
-        capabilities: ['TEXT', 'STREAMING'],
-        connectionStatus: 'Untested',
-        lastTested: null,
-        latencyMs: null,
-        usageCount: 0,
-        errorRate: 0,
-        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 'custom-http',
-        name: 'Custom HTTP Provider',
-        protocol: 'custom',
-        baseUrl: '',
-        apiKey: '',
-        enabled: false,
-        defaultModel: '',
-        models: [],
-        capabilities: ['TEXT', 'STREAMING'],
-        connectionStatus: 'Untested',
-        lastTested: null,
-        latencyMs: null,
-        usageCount: 0,
-        errorRate: 0,
+        scope: 'global',
+        metadata: { streamingEnabled: true },
         created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
         updated_at: new Date().toISOString()
       }
@@ -917,6 +818,9 @@ export class DatabaseStore {
             name: data.name || 'Custom Agent',
             description: data.description || '',
             model: data.model || 'gemini-3.8-flash',
+            provider_id: data.provider_id || 'gemini',
+            fallback_provider_id: data.fallback_provider_id || null,
+            fallback_model: data.fallback_model || null,
             system_instructions: data.system_instructions || 'You are a helpful AI assistant.',
             temperature: data.temperature ?? 0.7,
             top_p: data.top_p ?? 0.95,
@@ -941,6 +845,9 @@ export class DatabaseStore {
       name: data.name || 'Custom Agent',
       description: data.description || '',
       model: data.model || 'gemini-3.8-flash',
+      provider_id: data.provider_id || 'gemini',
+      fallback_provider_id: data.fallback_provider_id,
+      fallback_model: data.fallback_model,
       system_instructions: data.system_instructions || 'You are a helpful AI assistant.',
       temperature: data.temperature ?? 0.7,
       top_p: data.top_p ?? 0.95,
@@ -967,6 +874,9 @@ export class DatabaseStore {
             name: updates.name,
             description: updates.description,
             model: updates.model,
+            provider_id: updates.provider_id,
+            fallback_provider_id: updates.fallback_provider_id,
+            fallback_model: updates.fallback_model,
             system_instructions: updates.system_instructions,
             temperature: updates.temperature,
             top_p: updates.top_p,
@@ -1483,178 +1393,191 @@ export class DatabaseStore {
   }
 
   // --- AI PROVIDERS MANAGEMENT METHODS ---
-  static async listProviders(): Promise<AIProvider[]> {
+  static async listProviders(includeSecret = false): Promise<AIProvider[]> {
     if (supabase) {
       try {
         const { data, error } = await supabase.from('ai_providers').select('*').order('created_at', { ascending: false });
         if (!error && data) {
-          return data.map((p) => ({
-            ...p,
-            hasApiKey: Boolean(p.api_key),
-            apiKey: undefined, // Safeguard: never send raw keys to client
-          }));
+          const mapped = data.map((p) => mapRowToProvider(p, includeSecret));
+          return includeSecret ? mapped : mapped.map(toPublicProvider);
         }
-      } catch (err) {
+      } catch {
         // Table may not exist yet, fallback to memory
       }
     }
-    return memoryStore.providers.map((p) => ({
+    const mapped = memoryStore.providers.map((p) => ({
       ...p,
+      type: p.type || kindFromProtocol(p.protocol),
       hasApiKey: Boolean(p.apiKey),
-      apiKey: undefined, // Safeguard
+      apiKey: includeSecret ? p.apiKey : undefined,
     }));
+    return includeSecret ? mapped : mapped.map(toPublicProvider);
   }
 
-  static async getProvider(id: string): Promise<AIProvider | null> {
+  static async getProvider(id: string, includeSecret = false): Promise<AIProvider | null> {
     if (supabase) {
       try {
         const { data, error } = await supabase.from('ai_providers').select('*').eq('id', id).maybeSingle();
         if (!error && data) {
-          return data;
+          const mapped = mapRowToProvider(data, includeSecret);
+          return includeSecret ? mapped : toPublicProvider(mapped);
         }
-      } catch (err) {
+      } catch {
         // Fallback
       }
     }
-    return memoryStore.providers.find((p) => p.id === id) || null;
+    const found = memoryStore.providers.find((p) => p.id === id);
+    if (!found) return null;
+    const mapped: AIProvider = {
+      ...found,
+      type: found.type || kindFromProtocol(found.protocol),
+      hasApiKey: Boolean(found.apiKey),
+      apiKey: includeSecret ? found.apiKey : undefined,
+    };
+    return includeSecret ? mapped : toPublicProvider(mapped);
+  }
+
+  static async getDefaultProvider(includeSecret = false): Promise<AIProvider | null> {
+    const providers = await this.listProviders(includeSecret);
+    return providers.find((p) => p.isDefault && p.enabled) || providers.find((p) => p.enabled) || null;
   }
 
   static async createProvider(data: Partial<AIProvider>): Promise<AIProvider> {
-    const id = data.id || `prov_${crypto.randomBytes(6).toString('hex')}`;
+    const id = data.id?.trim() || slugifyProviderId(data.name || 'provider');
+    const resolvedProtocol = data.protocol || (data.type === 'anthropic' || data.type === 'anthropic-compatible'
+      ? 'anthropic'
+      : data.type === 'gemini'
+        ? 'gemini'
+        : data.type === 'custom-http'
+          ? 'custom'
+          : 'openai');
+    const encryptedKey = data.apiKey ? encryptProviderSecret(data.apiKey) : '';
     const newProvider: AIProvider = {
       id,
       name: data.name || 'New Provider',
-      protocol: data.protocol || 'openai',
-      baseUrl: data.baseUrl || '',
+      type: data.type || kindFromProtocol(resolvedProtocol),
+      protocol: resolvedProtocol,
+      baseUrl: (data.baseUrl || '').trim(),
       apiKey: data.apiKey || '',
+      hasApiKey: Boolean(data.apiKey),
       enabled: data.enabled !== false,
       defaultModel: data.defaultModel || '',
-      models: data.models || [],
-      capabilities: data.capabilities || ['TEXT'],
+      models: data.models || (data.defaultModel ? [data.defaultModel] : []),
+      capabilities: data.capabilities || ['TEXT', 'STREAMING'],
       connectionStatus: data.connectionStatus || 'Untested',
       lastTested: data.lastTested || null,
       latencyMs: data.latencyMs || null,
       usageCount: 0,
       errorRate: 0,
+      isDefault: Boolean(data.isDefault),
+      isSystem: Boolean(data.isSystem),
+      scope: data.scope || 'global',
+      ownerId: data.ownerId,
+      metadata: data.metadata || {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    if (newProvider.isDefault) {
+      await this.clearDefaultFlag(newProvider.id);
+    }
 
     if (supabase) {
       try {
         const { data: inserted, error } = await supabase
           .from('ai_providers')
-          .insert({
-            id: newProvider.id,
-            name: newProvider.name,
-            protocol: newProvider.protocol,
-            base_url: newProvider.baseUrl,
-            api_key: newProvider.apiKey,
-            enabled: newProvider.enabled,
-            default_model: newProvider.defaultModel,
-            models: newProvider.models,
-            capabilities: newProvider.capabilities,
-            connection_status: newProvider.connectionStatus,
-            last_tested: newProvider.lastTested,
-            latency_ms: newProvider.latencyMs,
-            usage_count: newProvider.usageCount,
-            error_rate: newProvider.errorRate,
-          })
+          .insert(toDbProviderRow(newProvider, encryptedKey))
           .select()
           .single();
         if (!error && inserted) {
-          return {
-            ...newProvider,
-            ...inserted,
-            hasApiKey: Boolean(inserted.api_key),
-            apiKey: undefined,
-          };
+          memoryStore.providers.unshift(newProvider);
+          return toPublicProvider(mapRowToProvider(inserted, false));
         }
-      } catch (err) {
+      } catch {
         // Fallback to memory
       }
     }
 
     memoryStore.providers.unshift(newProvider);
-    return {
-      ...newProvider,
-      hasApiKey: Boolean(newProvider.apiKey),
-      apiKey: undefined,
-    };
+    return toPublicProvider(newProvider);
   }
 
   static async updateProvider(id: string, updates: Partial<AIProvider>): Promise<AIProvider | null> {
+    const originalProvider = await this.getProvider(id, true);
     const memoryIdx = memoryStore.providers.findIndex((p) => p.id === id);
-    let originalProvider: AIProvider | null = null;
-    if (memoryIdx !== -1) {
-      originalProvider = memoryStore.providers[memoryIdx];
-    } else if (supabase) {
-      originalProvider = await this.getProvider(id);
-    }
+    if (!originalProvider && memoryIdx === -1) return null;
+    const base = originalProvider || memoryStore.providers[memoryIdx];
+    if (!base) return null;
 
-    if (!originalProvider) return null;
-
-    // Preserve original API key if no new one is provided
-    const apiKey = updates.apiKey === undefined ? originalProvider.apiKey : updates.apiKey;
-
+    const nextKey = updates.apiKey === undefined ? base.apiKey || '' : updates.apiKey;
+    const encryptedKey = nextKey ? encryptProviderSecret(nextKey) : '';
     const merged: AIProvider = {
-      ...originalProvider,
+      ...base,
       ...updates,
-      apiKey,
+      type: updates.type || base.type || kindFromProtocol(updates.protocol || base.protocol),
+      protocol: updates.protocol || base.protocol,
+      apiKey: nextKey,
+      hasApiKey: Boolean(nextKey),
+      metadata: updates.metadata ? { ...(base.metadata || {}), ...updates.metadata } : base.metadata,
       updated_at: new Date().toISOString(),
     };
+
+    if (updates.isDefault) {
+      await this.clearDefaultFlag(id);
+    }
 
     if (supabase) {
       try {
         const { data: updated, error } = await supabase
           .from('ai_providers')
-          .update({
-            name: merged.name,
-            protocol: merged.protocol,
-            base_url: merged.baseUrl,
-            api_key: merged.apiKey,
-            enabled: merged.enabled,
-            default_model: merged.defaultModel,
-            models: merged.models,
-            capabilities: merged.capabilities,
-            connection_status: merged.connectionStatus,
-            last_tested: merged.lastTested,
-            latency_ms: merged.latencyMs,
-            usage_count: merged.usageCount,
-            error_rate: merged.errorRate,
-            updated_at: merged.updated_at,
-          })
+          .update(toDbProviderRow(merged, encryptedKey))
           .eq('id', id)
           .select()
           .single();
 
         if (!error && updated) {
-          if (memoryIdx !== -1) {
-            memoryStore.providers[memoryIdx] = merged;
-          }
-          return {
-            ...merged,
-            ...updated,
-            hasApiKey: Boolean(updated.api_key),
-            apiKey: undefined,
-          };
+          if (memoryIdx !== -1) memoryStore.providers[memoryIdx] = merged;
+          return toPublicProvider(mapRowToProvider(updated, false));
         }
-      } catch (err) {
+      } catch {
         // Fallback
       }
     }
 
     if (memoryIdx !== -1) {
       memoryStore.providers[memoryIdx] = merged;
+    } else {
+      memoryStore.providers.unshift(merged);
     }
-    return {
-      ...merged,
-      hasApiKey: Boolean(merged.apiKey),
-      apiKey: undefined,
-    };
+    return toPublicProvider(merged);
+  }
+
+  static async clearDefaultFlag(exceptId?: string): Promise<void> {
+    memoryStore.providers.forEach((p) => {
+      if (p.id !== exceptId) p.isDefault = false;
+    });
+    if (supabase) {
+      try {
+        let query = supabase.from('ai_providers').update({ is_default: false });
+        if (exceptId) query = query.neq('id', exceptId);
+        await query;
+      } catch {
+        // optional
+      }
+    }
+  }
+
+  static async setDefaultProvider(id: string): Promise<AIProvider | null> {
+    await this.clearDefaultFlag(id);
+    return this.updateProvider(id, { isDefault: true, enabled: true });
   }
 
   static async deleteProvider(id: string): Promise<boolean> {
+    const existing = await this.getProvider(id, true);
+    if (existing?.isSystem && existing.protocol === 'gemini' && existing.id === 'gemini') {
+      throw new Error('The native Gemini provider cannot be deleted');
+    }
+
     if (supabase) {
       try {
         const { error } = await supabase.from('ai_providers').delete().eq('id', id);
@@ -1663,7 +1586,7 @@ export class DatabaseStore {
           if (idx !== -1) memoryStore.providers.splice(idx, 1);
           return true;
         }
-      } catch (err) {
+      } catch {
         // Fallback
       }
     }

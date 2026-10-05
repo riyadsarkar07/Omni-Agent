@@ -3,9 +3,11 @@ import {
   AIProvider,
   GenerateParams,
   NormalizedResponse,
-  ConnectionStatus,
-  ProviderCapability,
+  ConnectionTestResult,
 } from './types';
+import { joinProviderUrl, defaultOfficialBaseUrl } from './catalog';
+import { buildProviderHeaders, fetchWithTimeout, readSafeError, sleep } from './http';
+import { sanitizeProviderError } from './secrets';
 
 // Standard helper to parse SSE lines
 export async function* parseSSE(response: Response): AsyncGenerator<string, void, unknown> {
@@ -48,10 +50,10 @@ export class GeminiAdapter {
     });
   }
 
-  static async testConnection(provider: AIProvider): Promise<{ success: boolean; status: ConnectionStatus; error?: string }> {
+  static async testConnection(provider: AIProvider): Promise<ConnectionTestResult> {
     try {
       const ai = this.getClient(provider.apiKey);
-      const model = provider.defaultModel || 'gemini-3.8-flash';
+      const model = provider.defaultModel || provider.models[0] || 'gemini-3.8-flash';
       const response = await ai.models.generateContent({
         model,
         contents: 'ping',
@@ -61,15 +63,34 @@ export class GeminiAdapter {
       });
 
       if (response && response.text) {
-        return { success: true, status: 'Connected' };
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: true,
+        };
       }
-      return { success: false, status: 'Model Unavailable', error: 'Empty response text' };
-    } catch (err: any) {
-      const msg = err.message || '';
+      return {
+        success: false,
+        status: 'Model Unavailable',
+        error: 'Empty response text',
+        reachable: true,
+        authenticated: true,
+        modelAvailable: false,
+      };
+    } catch (err: unknown) {
+      const msg = sanitizeProviderError((err as Error).message || '');
       if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid') || msg.includes('key is invalid')) {
-        return { success: false, status: 'Authentication Failed', error: 'Invalid Google Gemini API Key' };
+        return {
+          success: false,
+          status: 'Authentication Failed',
+          error: 'Invalid Google Gemini API Key',
+          reachable: true,
+          authenticated: false,
+        };
       }
-      return { success: false, status: 'Provider Unavailable', error: msg };
+      return { success: false, status: 'Provider Unavailable', error: msg, reachable: false };
     }
   }
 
@@ -77,15 +98,19 @@ export class GeminiAdapter {
     try {
       const ai = this.getClient(provider.apiKey);
       const list = await ai.models.list();
-      if (list && Array.isArray(list)) {
-        return list
-          .map((m: any) => m.name || m.id)
+      const items = Array.isArray(list) ? list : (list as { page?: unknown[] })?.page;
+      if (items && Array.isArray(items) && items.length > 0) {
+        return items
+          .map((m) => {
+            const row = m as { name?: string; id?: string };
+            return row.name || row.id || '';
+          })
           .filter((name: string) => name && !name.startsWith('models/preview'))
           .map((name: string) => name.replace('models/', ''));
       }
-      return provider.models || ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite'];
+      return provider.models || [];
     } catch {
-      return provider.models || ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite'];
+      return provider.models || [];
     }
   }
 
@@ -219,24 +244,120 @@ export class GeminiAdapter {
 }
 
 export class OpenAIAdapter {
-  static getHeaders(provider: AIProvider) {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (provider.apiKey) {
-      headers['Authorization'] = `Bearer ${provider.apiKey}`;
-    }
-    return headers;
+  static resolveBaseUrl(provider: AIProvider): string {
+    const configured = (provider.baseUrl || '').trim();
+    if (configured) return configured.replace(/\/+$/, '');
+    if (provider.type === 'openai') return defaultOfficialBaseUrl('openai');
+    return '';
   }
 
-  static async testConnection(provider: AIProvider): Promise<{ success: boolean; status: ConnectionStatus; error?: string }> {
-    try {
-      const url = `${provider.baseUrl || 'https://api.openai.com/v1'}/chat/completions`;
-      const model = provider.defaultModel || 'gpt-4o-mini';
+  static getHeaders(provider: AIProvider) {
+    return buildProviderHeaders(provider);
+  }
 
-      const res = await fetch(url, {
+  static timeoutMs(provider: AIProvider): number {
+    return provider.metadata?.requestTimeoutMs || 20000;
+  }
+
+  static maxRetries(provider: AIProvider): number {
+    return Math.min(4, Math.max(0, provider.metadata?.maxRetries ?? 1));
+  }
+
+  static async request(
+    provider: AIProvider,
+    url: string,
+    init: RequestInit
+  ): Promise<Response> {
+    const retries = this.maxRetries(provider);
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetchWithTimeout(url, init, this.timeoutMs(provider));
+        if (res.status >= 500 && attempt < retries) {
+          await sleep(300 * (attempt + 1));
+          continue;
+        }
+        return res;
+      } catch (err: unknown) {
+        lastError = err as Error;
+        if (attempt < retries) {
+          await sleep(300 * (attempt + 1));
+          continue;
+        }
+      }
+    }
+    throw lastError || new Error('Provider request failed');
+  }
+
+  static async testConnection(provider: AIProvider): Promise<ConnectionTestResult> {
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) {
+      return { success: false, status: 'Invalid Base URL', error: 'Base URL is required for OpenAI-compatible providers' };
+    }
+
+    const headers = this.getHeaders(provider);
+    let reachable = false;
+    let authenticated = false;
+    let discovered: string[] = [];
+
+    try {
+      const modelsRes = await this.request(provider, joinProviderUrl(baseUrl, '/models'), {
+        method: 'GET',
+        headers,
+      });
+      reachable = true;
+      if (modelsRes.status === 401 || modelsRes.status === 403) {
+        return {
+          success: false,
+          status: 'Authentication Failed',
+          error: 'Invalid API key provided',
+          reachable,
+          authenticated: false,
+        };
+      }
+      if (modelsRes.ok) {
+        authenticated = true;
+        const data = await modelsRes.json();
+        if (data && Array.isArray(data.data)) {
+          discovered = data.data.map((m: { id?: string }) => m.id).filter(Boolean) as string[];
+        }
+      }
+    } catch (err: unknown) {
+      return {
+        success: false,
+        status: 'Invalid Base URL',
+        error: sanitizeProviderError((err as Error).message || 'Connection failed'),
+        reachable: false,
+      };
+    }
+
+    const model = provider.defaultModel || discovered[0] || provider.models[0];
+    if (!model) {
+      if (authenticated) {
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: false,
+          models: discovered,
+          error: 'Provider reachable. Enter a Model ID to verify a specific model.',
+        };
+      }
+      return {
+        success: false,
+        status: 'Configuration Error',
+        error: 'A Model ID is required to test this provider',
+        reachable,
+        authenticated,
+        models: discovered,
+      };
+    }
+
+    try {
+      const res = await this.request(provider, joinProviderUrl(baseUrl, '/chat/completions'), {
         method: 'POST',
-        headers: this.getHeaders(provider),
+        headers,
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: 'ping' }],
@@ -245,28 +366,75 @@ export class OpenAIAdapter {
       });
 
       if (res.status === 200) {
-        return { success: true, status: 'Connected' };
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: true,
+          models: discovered,
+        };
       }
 
-      if (res.status === 401) {
-        return { success: false, status: 'Authentication Failed', error: 'Invalid API key provided' };
+      if (res.status === 401 || res.status === 403) {
+        return {
+          success: false,
+          status: 'Authentication Failed',
+          error: 'Invalid API key provided',
+          reachable: true,
+          authenticated: false,
+          models: discovered,
+        };
       }
 
       if (res.status === 404) {
-        return { success: false, status: 'Model Unavailable', error: `Endpoint or Model '${model}' not found` };
+        return {
+          success: false,
+          status: 'Model Unavailable',
+          error: `Model '${model}' was not found on this provider`,
+          reachable: true,
+          authenticated: true,
+          modelAvailable: false,
+          models: discovered,
+        };
       }
 
-      const bodyText = await res.text();
-      return { success: false, status: 'Provider Unavailable', error: `HTTP ${res.status}: ${bodyText}` };
-    } catch (err: any) {
-      return { success: false, status: 'Invalid Base URL', error: err.message || 'Connection failed' };
+      if (res.status === 429) {
+        return {
+          success: false,
+          status: 'Rate Limited',
+          error: 'Provider rate limit reached. Try again later.',
+          reachable: true,
+          authenticated: true,
+          models: discovered,
+        };
+      }
+
+      return {
+        success: false,
+        status: 'Provider Unavailable',
+        error: await readSafeError(res),
+        reachable: true,
+        authenticated,
+        models: discovered,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        status: 'Invalid Base URL',
+        error: sanitizeProviderError((err as Error).message || 'Connection failed'),
+        reachable,
+        authenticated,
+        models: discovered,
+      };
     }
   }
 
   static async listModels(provider: AIProvider): Promise<string[]> {
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) return provider.models || [];
     try {
-      const url = `${provider.baseUrl || 'https://api.openai.com/v1'}/models`;
-      const res = await fetch(url, {
+      const res = await this.request(provider, joinProviderUrl(baseUrl, '/models'), {
         method: 'GET',
         headers: this.getHeaders(provider),
       });
@@ -274,24 +442,20 @@ export class OpenAIAdapter {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.data)) {
-          return data.data
-            .map((m: any) => m.id)
-            .filter((id: string) => id.includes('gpt') || id.includes('claude') || id.includes('llama') || id.includes('gemini') || id.includes('mistral') || id.includes('deepseek'));
+          const ids = data.data
+            .map((m: { id?: string }) => m.id)
+            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+          if (ids.length > 0) return ids;
         }
       }
-      return provider.models || ['gpt-4o', 'gpt-4o-mini', 'o1-mini'];
+      return provider.models || [];
     } catch {
-      return provider.models || ['gpt-4o', 'gpt-4o-mini', 'o1-mini'];
+      return provider.models || [];
     }
   }
 
-  static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {
-    const startTime = Date.now();
-    const url = `${provider.baseUrl || 'https://api.openai.com/v1'}/chat/completions`;
-    const model = params.model || provider.defaultModel || 'gpt-4o-mini';
-
-    // Map messages to OpenAI format
-    const messages = [];
+  static buildMessages(params: GenerateParams) {
+    const messages: Array<{ role: string; content: string }> = [];
     if (params.systemInstruction) {
       messages.push({ role: 'system', content: params.systemInstruction });
     }
@@ -301,24 +465,33 @@ export class OpenAIAdapter {
         content: m.content,
       });
     });
+    return messages;
+  }
 
-    const body: any = {
+  static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {
+    const startTime = Date.now();
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) throw new Error('Base URL is required for OpenAI-compatible providers');
+    const url = joinProviderUrl(baseUrl, '/chat/completions');
+    const model = params.model || provider.defaultModel;
+    if (!model) throw new Error('A Model ID is required');
+
+    const body: Record<string, unknown> = {
       model,
-      messages,
-      temperature: params.temperature ?? 0.7,
+      messages: this.buildMessages(params),
+      temperature: params.temperature ?? provider.metadata?.temperature ?? 0.7,
       top_p: params.topP,
-      max_tokens: params.maxOutputTokens,
+      max_tokens: params.maxOutputTokens ?? provider.metadata?.maxTokens,
     };
 
-    const res = await fetch(url, {
+    const res = await this.request(provider, url, {
       method: 'POST',
       headers: this.getHeaders(provider),
       body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`OpenAI Error (${res.status}): ${errorText}`);
+      throw new Error(await readSafeError(res));
     }
 
     const data = await res.json();
@@ -341,38 +514,29 @@ export class OpenAIAdapter {
 
   static async generateStream(provider: AIProvider, params: GenerateParams): Promise<ReadableStream<Uint8Array>> {
     const encoder = new TextEncoder();
-    const url = `${provider.baseUrl || 'https://api.openai.com/v1'}/chat/completions`;
-    const model = params.model || provider.defaultModel || 'gpt-4o-mini';
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) throw new Error('Base URL is required for OpenAI-compatible providers');
+    const url = joinProviderUrl(baseUrl, '/chat/completions');
+    const model = params.model || provider.defaultModel;
+    if (!model) throw new Error('A Model ID is required');
 
-    const messages = [];
-    if (params.systemInstruction) {
-      messages.push({ role: 'system', content: params.systemInstruction });
-    }
-    params.messages.forEach((m) => {
-      messages.push({
-        role: m.role === 'model' ? 'assistant' : m.role,
-        content: m.content,
-      });
-    });
-
-    const body: any = {
+    const body: Record<string, unknown> = {
       model,
-      messages,
-      temperature: params.temperature ?? 0.7,
+      messages: this.buildMessages(params),
+      temperature: params.temperature ?? provider.metadata?.temperature ?? 0.7,
       top_p: params.topP,
-      max_tokens: params.maxOutputTokens,
+      max_tokens: params.maxOutputTokens ?? provider.metadata?.maxTokens,
       stream: true,
     };
 
-    const res = await fetch(url, {
+    const res = await this.request(provider, url, {
       method: 'POST',
       headers: this.getHeaders(provider),
       body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`OpenAI Stream Error (${res.status}): ${errorText}`);
+      throw new Error(await readSafeError(res));
     }
 
     return new ReadableStream<Uint8Array>({
@@ -428,65 +592,127 @@ export class OpenAIAdapter {
 }
 
 export class AnthropicAdapter {
-  static getHeaders(provider: AIProvider) {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-    };
-    if (provider.apiKey) {
-      headers['x-api-key'] = provider.apiKey;
-    }
-    return headers;
+  static resolveBaseUrl(provider: AIProvider): string {
+    const configured = (provider.baseUrl || '').trim();
+    if (configured) return configured.replace(/\/+$/, '');
+    if (provider.type === 'anthropic') return defaultOfficialBaseUrl('anthropic');
+    return '';
   }
 
-  static async testConnection(provider: AIProvider): Promise<{ success: boolean; status: ConnectionStatus; error?: string }> {
-    try {
-      const url = `${provider.baseUrl || 'https://api.anthropic.com/v1'}/messages`;
-      const model = provider.defaultModel || 'claude-3-5-haiku-latest';
+  static getHeaders(provider: AIProvider) {
+    return buildProviderHeaders(provider);
+  }
 
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: this.getHeaders(provider),
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 5,
-        }),
-      });
+  static timeoutMs(provider: AIProvider): number {
+    return provider.metadata?.requestTimeoutMs || 20000;
+  }
+
+  static async testConnection(provider: AIProvider): Promise<ConnectionTestResult> {
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) {
+      return { success: false, status: 'Invalid Base URL', error: 'Base URL is required for Anthropic-compatible providers' };
+    }
+    const model = provider.defaultModel || provider.models[0];
+    if (!model) {
+      return { success: false, status: 'Configuration Error', error: 'A Model ID is required to test this provider' };
+    }
+
+    try {
+      const url = joinProviderUrl(baseUrl, '/messages');
+      const res = await fetchWithTimeout(
+        url,
+        {
+          method: 'POST',
+          headers: this.getHeaders(provider),
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 5,
+          }),
+        },
+        this.timeoutMs(provider)
+      );
 
       if (res.status === 200) {
-        return { success: true, status: 'Connected' };
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: true,
+        };
       }
 
-      if (res.status === 401) {
-        return { success: false, status: 'Authentication Failed', error: 'Invalid Anthropic API key' };
+      if (res.status === 401 || res.status === 403) {
+        return {
+          success: false,
+          status: 'Authentication Failed',
+          error: 'Invalid Anthropic API key',
+          reachable: true,
+          authenticated: false,
+        };
       }
 
       if (res.status === 404) {
-        return { success: false, status: 'Model Unavailable', error: `Anthropic Model '${model}' not found` };
+        return {
+          success: false,
+          status: 'Model Unavailable',
+          error: `Model '${model}' was not found`,
+          reachable: true,
+          authenticated: true,
+          modelAvailable: false,
+        };
       }
 
-      const bodyText = await res.text();
-      return { success: false, status: 'Provider Unavailable', error: `HTTP ${res.status}: ${bodyText}` };
-    } catch (err: any) {
-      return { success: false, status: 'Invalid Base URL', error: err.message || 'Connection failed' };
+      if (res.status === 429) {
+        return { success: false, status: 'Rate Limited', error: 'Provider rate limit reached', reachable: true, authenticated: true };
+      }
+
+      return {
+        success: false,
+        status: 'Provider Unavailable',
+        error: await readSafeError(res),
+        reachable: true,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        status: 'Invalid Base URL',
+        error: sanitizeProviderError((err as Error).message || 'Connection failed'),
+      };
     }
   }
 
   static async listModels(provider: AIProvider): Promise<string[]> {
-    return (
-      provider.models || [
-        'claude-3-5-sonnet-latest',
-        'claude-3-5-haiku-latest',
-        'claude-3-opus-latest',
-      ]
-    );
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) return provider.models || [];
+    try {
+      const res = await fetchWithTimeout(
+        joinProviderUrl(baseUrl, '/models'),
+        { method: 'GET', headers: this.getHeaders(provider) },
+        this.timeoutMs(provider)
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+        const ids = rows
+          .map((m: { id?: string; name?: string }) => m.id || m.name)
+          .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+        if (ids.length > 0) return ids;
+      }
+    } catch {
+      // Discovery is optional
+    }
+    return provider.models || [];
   }
 
   static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {
     const startTime = Date.now();
-    const url = `${provider.baseUrl || 'https://api.anthropic.com/v1'}/messages`;
-    const model = params.model || provider.defaultModel || 'claude-3-5-haiku-latest';
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) throw new Error('Base URL is required for Anthropic-compatible providers');
+    const url = joinProviderUrl(baseUrl, '/messages');
+    const model = params.model || provider.defaultModel;
+    if (!model) throw new Error('A Model ID is required');
 
     // Anthropic messages cannot contain 'system' role, it must be root-level parameter
     const messages = params.messages
@@ -496,26 +722,29 @@ export class AnthropicAdapter {
         content: m.content,
       }));
 
-    const body: any = {
+    const body: Record<string, unknown> = {
       model,
       messages,
-      max_tokens: params.maxOutputTokens || 1024,
-      temperature: params.temperature ?? 0.7,
+      max_tokens: params.maxOutputTokens || provider.metadata?.maxTokens || 1024,
+      temperature: params.temperature ?? provider.metadata?.temperature ?? 0.7,
     };
 
     if (params.systemInstruction) {
       body.system = params.systemInstruction;
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: this.getHeaders(provider),
-      body: JSON.stringify(body),
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: this.getHeaders(provider),
+        body: JSON.stringify(body),
+      },
+      this.timeoutMs(provider)
+    );
 
     if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Anthropic Error (${res.status}): ${errorText}`);
+      throw new Error(await readSafeError(res));
     }
 
     const data = await res.json();
@@ -538,8 +767,11 @@ export class AnthropicAdapter {
 
   static async generateStream(provider: AIProvider, params: GenerateParams): Promise<ReadableStream<Uint8Array>> {
     const encoder = new TextEncoder();
-    const url = `${provider.baseUrl || 'https://api.anthropic.com/v1'}/messages`;
-    const model = params.model || provider.defaultModel || 'claude-3-5-haiku-latest';
+    const baseUrl = this.resolveBaseUrl(provider);
+    if (!baseUrl) throw new Error('Base URL is required for Anthropic-compatible providers');
+    const url = joinProviderUrl(baseUrl, '/messages');
+    const model = params.model || provider.defaultModel;
+    if (!model) throw new Error('A Model ID is required');
 
     const messages = params.messages
       .filter((m) => m.role !== 'system')
@@ -548,11 +780,11 @@ export class AnthropicAdapter {
         content: m.content,
       }));
 
-    const body: any = {
+    const body: Record<string, unknown> = {
       model,
       messages,
-      max_tokens: params.maxOutputTokens || 1024,
-      temperature: params.temperature ?? 0.7,
+      max_tokens: params.maxOutputTokens || provider.metadata?.maxTokens || 1024,
+      temperature: params.temperature ?? provider.metadata?.temperature ?? 0.7,
       stream: true,
     };
 
@@ -560,15 +792,18 @@ export class AnthropicAdapter {
       body.system = params.systemInstruction;
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: this.getHeaders(provider),
-      body: JSON.stringify(body),
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: this.getHeaders(provider),
+        body: JSON.stringify(body),
+      },
+      this.timeoutMs(provider)
+    );
 
     if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Anthropic Stream Error (${res.status}): ${errorText}`);
+      throw new Error(await readSafeError(res));
     }
 
     return new ReadableStream<Uint8Array>({
@@ -620,64 +855,102 @@ export class AnthropicAdapter {
 }
 
 export class CustomHTTPAdapter {
-  static async testConnection(provider: AIProvider): Promise<{ success: boolean; status: ConnectionStatus; error?: string }> {
+  static timeoutMs(provider: AIProvider): number {
+    return provider.metadata?.requestTimeoutMs || 20000;
+  }
+
+  static async testConnection(provider: AIProvider): Promise<ConnectionTestResult> {
+    if (!provider.baseUrl) {
+      return { success: false, status: 'Invalid Base URL', error: 'Base URL is required' };
+    }
     try {
       const url = provider.baseUrl;
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          ...(provider.apiKey ? { 'Authorization': `Bearer ${provider.apiKey}` } : {}),
+      const res = await fetchWithTimeout(
+        url,
+        {
+          method: 'GET',
+          headers: buildProviderHeaders(provider),
         },
-      });
+        this.timeoutMs(provider)
+      );
 
       if (res.status >= 200 && res.status < 400) {
-        return { success: true, status: 'Connected' };
+        return { success: true, status: 'Connected', reachable: true, authenticated: true };
       }
 
       if (res.status === 401 || res.status === 403) {
-        return { success: false, status: 'Authentication Failed', error: `Auth failed: status ${res.status}` };
+        return {
+          success: false,
+          status: 'Authentication Failed',
+          error: `Authentication failed (${res.status})`,
+          reachable: true,
+          authenticated: false,
+        };
       }
 
-      const txt = await res.text();
-      return { success: false, status: 'Provider Unavailable', error: `HTTP ${res.status}: ${txt.slice(0, 100)}` };
-    } catch (err: any) {
-      return { success: false, status: 'Invalid Base URL', error: err.message || 'Connection failed' };
+      return {
+        success: false,
+        status: 'Provider Unavailable',
+        error: await readSafeError(res),
+        reachable: true,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        status: 'Invalid Base URL',
+        error: sanitizeProviderError((err as Error).message || 'Connection failed'),
+      };
     }
   }
 
   static async listModels(provider: AIProvider): Promise<string[]> {
-    return provider.models || ['custom-model-1'];
+    if (!provider.baseUrl) return provider.models || [];
+    try {
+      const modelsUrl = joinProviderUrl(provider.baseUrl.replace(/\/+$/, ''), '/models');
+      const res = await fetchWithTimeout(
+        modelsUrl,
+        { method: 'GET', headers: buildProviderHeaders(provider) },
+        this.timeoutMs(provider)
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+        const ids = rows
+          .map((m: { id?: string; name?: string }) => m.id || m.name)
+          .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+        if (ids.length > 0) return ids;
+      }
+    } catch {
+      // Discovery is optional
+    }
+    return provider.models || [];
   }
 
   static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {
     const startTime = Date.now();
     const url = provider.baseUrl;
+    if (!url) throw new Error('Base URL is required for custom HTTP providers');
 
-    // Custom HTTP endpoints require custom payload mappings or generic JSON mapping
     const payload = {
       model: params.model,
       prompt: params.messages[params.messages.length - 1]?.content || '',
+      messages: params.messages,
       system: params.systemInstruction,
-      temperature: params.temperature,
+      temperature: params.temperature ?? provider.metadata?.temperature,
     };
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (provider.apiKey) {
-      headers['Authorization'] = `Bearer ${provider.apiKey}`;
-    }
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: buildProviderHeaders(provider),
+        body: JSON.stringify(payload),
+      },
+      this.timeoutMs(provider)
+    );
 
     if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Custom HTTP Error (${res.status}): ${errorText}`);
+      throw new Error(await readSafeError(res));
     }
 
     const data = await res.json();

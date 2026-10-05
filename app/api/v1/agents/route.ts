@@ -6,7 +6,10 @@ import { DatabaseStore } from '@/lib/db/store';
 const createAgentSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(80),
   description: z.string().max(250).default(''),
-  model: z.enum(['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-flash-latest']).default('gemini-3.8-flash'),
+  model: z.string().min(1).max(200).default('gemini-3.8-flash'),
+  provider_id: z.string().optional(),
+  fallback_provider_id: z.string().nullable().optional(),
+  fallback_model: z.string().nullable().optional(),
   system_instructions: z.string().min(5, 'Instructions must be at least 5 characters').max(10000),
   temperature: z.number().min(0).max(2).default(0.7),
   top_p: z.number().min(0).max(1).default(0.95),
@@ -54,6 +57,8 @@ export async function POST(req: NextRequest) {
 
     const newAgent = await DatabaseStore.createAgent({
       ...payload,
+      fallback_provider_id: payload.fallback_provider_id ?? undefined,
+      fallback_model: payload.fallback_model ?? undefined,
       project_id: targetProjectId,
     });
 

@@ -1,32 +1,43 @@
-import { AIProvider, GenerateParams, NormalizedResponse } from './types';
+import { AIProvider, GenerateParams, NormalizedResponse, ConnectionTestResult } from './types';
 import { GeminiAdapter, OpenAIAdapter, AnthropicAdapter, CustomHTTPAdapter } from './adapters';
 import { DatabaseStore } from '../db/store';
+import { sanitizeProviderError } from './secrets';
+import { isValidHttpUrl } from './catalog';
 
 export class ModelRouter {
-  /**
-   * Resolve a provider config by its ID, falling back to Gemini if not found or if id is "gemini"
-   */
   static async resolveProvider(providerId?: string): Promise<AIProvider> {
-    if (providerId && providerId !== 'gemini' && providerId !== 'google-gemini') {
+    if (providerId && providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') {
       try {
-        const provider = await DatabaseStore.getProvider(providerId);
+        const provider = await DatabaseStore.getProvider(providerId, true);
         if (provider && provider.enabled) {
-          return provider;
+          return this.hydrateBuiltinSecrets(provider);
         }
       } catch (err) {
-        console.warn(`Failed to retrieve provider ${providerId}:`, err);
+        console.warn(`Failed to retrieve provider ${providerId}`);
       }
     }
 
-    // Default Fallback: Gemini Provider
+    const defaultConfigured = await DatabaseStore.getDefaultProvider(true);
+    if (defaultConfigured && defaultConfigured.enabled && defaultConfigured.id !== 'gemini') {
+      return this.hydrateBuiltinSecrets(defaultConfigured);
+    }
+
+    return this.builtinGemini();
+  }
+
+  static builtinGemini(): AIProvider {
     return {
       id: 'gemini',
       name: 'Google Gemini',
+      type: 'gemini',
       protocol: 'gemini',
       baseUrl: 'https://generativelanguage.googleapis.com',
       apiKey: process.env.GEMINI_API_KEY || '',
+      hasApiKey: Boolean(process.env.GEMINI_API_KEY),
       enabled: true,
-      defaultModel: 'gemini-3.8-flash',
+      isSystem: true,
+      isDefault: true,
+      defaultModel: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
       models: [
         'gemini-3.8-flash',
         'gemini-3.1-pro-preview',
@@ -44,22 +55,53 @@ export class ModelRouter {
         'VIDEO_GENERATION',
         'MUSIC_GENERATION',
       ],
-      connectionStatus: 'Connected',
+      connectionStatus: process.env.GEMINI_API_KEY ? 'Connected' : 'Untested',
+      metadata: { streamingEnabled: true },
     };
   }
 
-  /**
-   * Unary content generation routed to the correct adapter
-   */
-  static async generate(providerId: string | undefined, params: GenerateParams): Promise<NormalizedResponse> {
+  static hydrateBuiltinSecrets(provider: AIProvider): AIProvider {
+    if (provider.protocol === 'gemini' && !provider.apiKey) {
+      return { ...provider, apiKey: process.env.GEMINI_API_KEY || '', hasApiKey: Boolean(process.env.GEMINI_API_KEY) };
+    }
+    return provider;
+  }
+
+  static validateConfig(provider: Partial<AIProvider>): { ok: boolean; error?: string } {
+    if (!provider.name?.trim()) {
+      return { ok: false, error: 'Provider name is required' };
+    }
+    const protocol = provider.protocol || 'openai';
+    const needsUrl = protocol !== 'gemini' || Boolean(provider.baseUrl);
+    if (needsUrl && provider.baseUrl && !isValidHttpUrl(provider.baseUrl)) {
+      return { ok: false, error: 'Base URL must be a valid http or https URL' };
+    }
+    if (protocol !== 'gemini' && !provider.baseUrl?.trim() && provider.type !== 'openai' && provider.type !== 'anthropic' && provider.type !== 'gemini') {
+      return { ok: false, error: 'Base URL is required for this provider type' };
+    }
+    return { ok: true };
+  }
+
+  static async generate(
+    providerId: string | undefined,
+    params: GenerateParams,
+    fallbackProviderId?: string
+  ): Promise<NormalizedResponse> {
     const provider = await this.resolveProvider(providerId);
 
-    // If a fallback is configured and active, and the main request fails, we handle fallback
     try {
       return await this.dispatchGenerate(provider, params);
-    } catch (error: any) {
-      console.error(`Primary provider ${provider.id} failed:`, error);
-      throw error;
+    } catch (error: unknown) {
+      const message = sanitizeProviderError((error as Error).message || 'Provider request failed');
+      console.error(`Primary provider ${provider.id} failed`);
+      if (fallbackProviderId && fallbackProviderId !== provider.id) {
+        const fallback = await this.resolveProvider(fallbackProviderId);
+        return await this.dispatchGenerate(fallback, {
+          ...params,
+          model: params.model || fallback.defaultModel,
+        });
+      }
+      throw new Error(message);
     }
   }
 
@@ -78,12 +120,28 @@ export class ModelRouter {
     }
   }
 
-  /**
-   * Streaming generation routed to the correct adapter
-   */
-  static async generateStream(providerId: string | undefined, params: GenerateParams): Promise<ReadableStream<Uint8Array>> {
+  static async generateStream(
+    providerId: string | undefined,
+    params: GenerateParams,
+    fallbackProviderId?: string
+  ): Promise<ReadableStream<Uint8Array>> {
     const provider = await this.resolveProvider(providerId);
 
+    try {
+      return await this.dispatchStream(provider, params);
+    } catch (error: unknown) {
+      if (fallbackProviderId && fallbackProviderId !== provider.id) {
+        const fallback = await this.resolveProvider(fallbackProviderId);
+        return await this.dispatchStream(fallback, {
+          ...params,
+          model: params.model || fallback.defaultModel,
+        });
+      }
+      throw error;
+    }
+  }
+
+  private static async dispatchStream(provider: AIProvider, params: GenerateParams): Promise<ReadableStream<Uint8Array>> {
     switch (provider.protocol) {
       case 'gemini':
         return await GeminiAdapter.generateStream(provider, params);
@@ -98,39 +156,35 @@ export class ModelRouter {
     }
   }
 
-  /**
-   * Standard connection testing routed to the correct adapter
-   */
-  static async testConnection(provider: AIProvider): Promise<{ success: boolean; status: string; error?: string }> {
-    switch (provider.protocol) {
+  static async testConnection(provider: AIProvider): Promise<ConnectionTestResult> {
+    const hydrated = this.hydrateBuiltinSecrets(provider);
+    switch (hydrated.protocol) {
       case 'gemini':
-        return await GeminiAdapter.testConnection(provider);
+        return await GeminiAdapter.testConnection(hydrated);
       case 'openai':
-        return await OpenAIAdapter.testConnection(provider);
+        return await OpenAIAdapter.testConnection(hydrated);
       case 'anthropic':
-        return await AnthropicAdapter.testConnection(provider);
+        return await AnthropicAdapter.testConnection(hydrated);
       case 'custom':
-        return await CustomHTTPAdapter.testConnection(provider);
+        return await CustomHTTPAdapter.testConnection(hydrated);
       default:
-        return { success: false, status: 'Configuration Error', error: `Unsupported protocol: ${provider.protocol}` };
+        return { success: false, status: 'Configuration Error', error: `Unsupported protocol: ${hydrated.protocol}` };
     }
   }
 
-  /**
-   * Dynamic model discovery
-   */
   static async listModels(provider: AIProvider): Promise<string[]> {
-    switch (provider.protocol) {
+    const hydrated = this.hydrateBuiltinSecrets(provider);
+    switch (hydrated.protocol) {
       case 'gemini':
-        return await GeminiAdapter.listModels(provider);
+        return await GeminiAdapter.listModels(hydrated);
       case 'openai':
-        return await OpenAIAdapter.listModels(provider);
+        return await OpenAIAdapter.listModels(hydrated);
       case 'anthropic':
-        return await AnthropicAdapter.listModels(provider);
+        return await AnthropicAdapter.listModels(hydrated);
       case 'custom':
-        return await CustomHTTPAdapter.listModels(provider);
+        return await CustomHTTPAdapter.listModels(hydrated);
       default:
-        return provider.models || [];
+        return hydrated.models || [];
     }
   }
 }

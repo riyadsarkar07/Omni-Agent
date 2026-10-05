@@ -155,7 +155,11 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
         },
       ]);
 
-      const activeProviderId = providers.find((p) => p.models.includes(modelToUse))?.id || 'gemini';
+      const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+      const activeProviderId =
+        selectedAgent?.provider_id ||
+        providers.find((p) => p.models.includes(modelToUse) && p.enabled)?.id ||
+        'gemini';
 
       try {
         const res = await fetch('/api/v1/chat/stream', {
@@ -239,7 +243,11 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
       }
     } else {
       const startTime = Date.now();
-      const activeProviderId = providers.find((p) => p.models.includes(modelToUse))?.id || 'gemini';
+      const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+      const activeProviderId =
+        selectedAgent?.provider_id ||
+        providers.find((p) => p.models.includes(modelToUse) && p.enabled)?.id ||
+        'gemini';
       try {
         const res = await fetch('/api/v1/chat', {
           method: 'POST',

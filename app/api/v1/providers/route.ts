@@ -1,34 +1,123 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { ModelRouter } from '@/lib/providers/router';
+import { getProviderTypeOption, protocolFromKind, isValidHttpUrl, PROVIDER_TYPE_OPTIONS } from '@/lib/providers/catalog';
+import { ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
+import { sanitizeProviderError } from '@/lib/providers/secrets';
 
-export async function GET() {
+export async function OPTIONS() {
+  return applyCorsHeaders(new NextResponse(null, { status: 204 }));
+}
+
+export async function GET(req: NextRequest) {
+  const { auth, errorResponse } = await authenticateApiRequest(req);
+  if (errorResponse) return applyCorsHeaders(errorResponse);
+  if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+
   try {
     const providers = await DatabaseStore.listProviders();
-    return NextResponse.json({ success: true, providers });
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message || 'Failed to list providers' },
-      { status: 500 }
+    const visible = auth.isAdmin
+      ? providers
+      : providers.filter((p) => p.scope !== 'personal' || p.ownerId === undefined || p.enabled);
+    return applyCorsHeaders(
+      NextResponse.json({
+        success: true,
+        providers: visible,
+        types: PROVIDER_TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label, protocol: t.protocol, placeholderUrl: t.placeholderUrl })),
+      })
+    );
+  } catch (err: unknown) {
+    return applyCorsHeaders(
+      NextResponse.json(
+        { success: false, error: sanitizeProviderError((err as Error).message || 'Failed to list providers') },
+        { status: 500 }
+      )
     );
   }
 }
 
 export async function POST(req: NextRequest) {
+  const { auth, errorResponse } = await authenticateApiRequest(req);
+  if (errorResponse) return applyCorsHeaders(errorResponse);
+  if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+
   try {
     const body = await req.json();
-    if (!body.name || !body.protocol) {
-      return NextResponse.json(
-        { success: false, error: 'Name and protocol are required fields' },
-        { status: 400 }
+    if (!body.name) {
+      return applyCorsHeaders(
+        NextResponse.json({ success: false, error: 'Provider name is required' }, { status: 400 })
       );
     }
 
-    const provider = await DatabaseStore.createProvider(body);
-    return NextResponse.json({ success: true, provider });
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message || 'Failed to create provider' },
-      { status: 500 }
+    const type = (body.type || 'openai-compatible') as ProviderKind;
+    const option = getProviderTypeOption(type);
+    const protocol = (body.protocol as ProviderProtocol) || protocolFromKind(option.id);
+    const baseUrl = String(body.baseUrl || '').trim();
+    const scope = auth.isAdmin ? (body.scope || 'global') : 'personal';
+
+    if (protocol !== 'gemini' && baseUrl && !isValidHttpUrl(baseUrl)) {
+      return applyCorsHeaders(
+        NextResponse.json({ success: false, error: 'Base URL must be a valid http or https URL' }, { status: 400 })
+      );
+    }
+
+    const metadata: ProviderMetadata = {
+      organizationId: body.organizationId || body.metadata?.organizationId,
+      apiVersion: body.apiVersion || body.metadata?.apiVersion,
+      customHeaders: body.customHeaders || body.metadata?.customHeaders,
+      requestTimeoutMs: Number(body.requestTimeoutMs || body.metadata?.requestTimeoutMs || 20000),
+      maxRetries: Number(body.maxRetries ?? body.metadata?.maxRetries ?? 1),
+      temperature: body.temperature ?? body.metadata?.temperature,
+      maxTokens: body.maxTokens ?? body.metadata?.maxTokens,
+      streamingEnabled: body.streamingEnabled ?? body.metadata?.streamingEnabled ?? true,
+    };
+
+    const validation = ModelRouter.validateConfig({ name: body.name, protocol, baseUrl, type });
+    if (!validation.ok) {
+      return applyCorsHeaders(NextResponse.json({ success: false, error: validation.error }, { status: 400 }));
+    }
+
+    const modelId = String(body.model || body.defaultModel || '').trim();
+    const models = Array.isArray(body.models)
+      ? body.models.filter((m: unknown): m is string => typeof m === 'string' && m.trim().length > 0)
+      : modelId
+        ? [modelId]
+        : [];
+
+    const provider = await DatabaseStore.createProvider({
+      id: body.id,
+      name: String(body.name).trim(),
+      type: option.id,
+      protocol,
+      baseUrl,
+      apiKey: body.apiKey ? String(body.apiKey) : '',
+      enabled: body.enabled !== false,
+      defaultModel: modelId,
+      models,
+      capabilities: body.capabilities || option.defaultCapabilities,
+      isDefault: Boolean(body.isDefault) && auth.isAdmin,
+      scope,
+      ownerId: scope === 'personal' ? auth.project.id : undefined,
+      metadata,
+    });
+
+    await DatabaseStore.logAudit({
+      project_id: auth.project.id,
+      user_email: 'dashboard@omniagent.io',
+      action: 'PROVIDER_CREATED',
+      resource_type: 'provider',
+      resource_id: provider.id,
+      details: { name: provider.name, type: provider.type, protocol: provider.protocol },
+    });
+
+    return applyCorsHeaders(NextResponse.json({ success: true, provider }, { status: 201 }));
+  } catch (err: unknown) {
+    return applyCorsHeaders(
+      NextResponse.json(
+        { success: false, error: sanitizeProviderError((err as Error).message || 'Failed to create provider') },
+        { status: 500 }
+      )
     );
   }
 }
