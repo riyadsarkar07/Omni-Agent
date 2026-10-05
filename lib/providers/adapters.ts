@@ -39,7 +39,10 @@ export async function* parseSSE(response: Response): AsyncGenerator<string, void
 
 export class GeminiAdapter {
   private static getClient(apiKey?: string): GoogleGenAI {
-    const key = apiKey || process.env.GEMINI_API_KEY || '';
+    const key = (apiKey || process.env.GEMINI_API_KEY || '').trim();
+    if (!key) {
+      throw new Error('GEMINI_API_KEY is not configured. Use a saved OpenAI-compatible provider instead.');
+    }
     return new GoogleGenAI({
       apiKey: key,
       httpOptions: {

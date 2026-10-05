@@ -1282,7 +1282,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
         {/* Engine Footnote */}
         <div className="pt-3 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
-          <span>Engine: Google Gen AI SDK</span>
+          <span>Engine: Multi-provider router</span>
           <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
             Operational

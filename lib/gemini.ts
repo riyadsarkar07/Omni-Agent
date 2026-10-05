@@ -1,12 +1,30 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { GeminiModelId } from './types';
 
-export const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+function requireGeminiKey(): string {
+  const key = process.env.GEMINI_API_KEY?.trim() || '';
+  if (!key) {
+    throw new Error('GEMINI_API_KEY is not configured. Use a saved OpenAI-compatible provider, or add GEMINI_API_KEY in Vercel.');
+  }
+  return key;
+}
+
+function createGeminiClient(): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey: requireGeminiKey(),
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
     },
+  });
+}
+
+export const ai = new Proxy({} as GoogleGenAI, {
+  get(_target, prop) {
+    const client = createGeminiClient() as unknown as Record<PropertyKey, unknown>;
+    const value = client[prop];
+    return typeof value === 'function' ? value.bind(client) : value;
   },
 });
 

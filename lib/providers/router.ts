@@ -15,7 +15,7 @@ function isBuiltinGeminiId(providerId?: string): boolean {
 
 export class ModelRouter {
   static async resolveProvider(providerId?: string, model?: string): Promise<AIProvider> {
-    if (!isBuiltinGeminiId(providerId)) {
+    if (providerId && !isBuiltinGeminiId(providerId)) {
       try {
         const provider = await DatabaseStore.getProvider(providerId, true);
         if (provider && provider.enabled) {
@@ -34,6 +34,7 @@ export class ModelRouter {
       if (match) {
         return this.hydrateBuiltinSecrets(match);
       }
+      throw new Error('No saved OpenAI-compatible provider matches this model. Save a provider (Base URL, API key, Model ID) first.');
     }
 
     const defaultConfigured = await DatabaseStore.getDefaultProvider(true);
