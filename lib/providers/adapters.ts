@@ -309,15 +309,6 @@ export class OpenAIAdapter {
         headers,
       });
       reachable = true;
-      if (modelsRes.status === 401 || modelsRes.status === 403) {
-        return {
-          success: false,
-          status: 'Authentication Failed',
-          error: 'Invalid API key provided',
-          reachable,
-          authenticated: false,
-        };
-      }
       if (modelsRes.ok) {
         authenticated = true;
         const data = await modelsRes.json();
@@ -325,13 +316,8 @@ export class OpenAIAdapter {
           discovered = data.data.map((m: { id?: string }) => m.id).filter(Boolean) as string[];
         }
       }
-    } catch (err: unknown) {
-      return {
-        success: false,
-        status: 'Invalid Base URL',
-        error: sanitizeProviderError((err as Error).message || 'Connection failed'),
-        reachable: false,
-      };
+    } catch {
+      // Some OpenAI-compatible gateways do not expose GET /models. Fall through to chat.
     }
 
     const model = provider.defaultModel || discovered[0] || provider.models[0];

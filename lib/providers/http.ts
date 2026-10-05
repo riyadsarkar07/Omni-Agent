@@ -35,11 +35,12 @@ export function buildProviderHeaders(provider: AIProvider, extra?: Record<string
       headers[key] = value;
     }
   }
+  const apiKey = (provider.apiKey || '').trim();
   if (provider.protocol === 'anthropic') {
     headers['anthropic-version'] = metadata.apiVersion || '2023-06-01';
-    if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
-  } else if (provider.apiKey) {
-    headers.Authorization = `Bearer ${provider.apiKey}`;
+    if (apiKey) headers['x-api-key'] = apiKey;
+  } else if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
   }
   if (metadata.organizationId) {
     headers['OpenAI-Organization'] = metadata.organizationId;

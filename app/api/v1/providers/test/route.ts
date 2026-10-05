@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
+import { DatabaseStore } from '@/lib/db/store';
 import { ModelRouter } from '@/lib/providers/router';
 import { protocolFromKind, getProviderTypeOption, isValidHttpUrl } from '@/lib/providers/catalog';
 import { AIProvider, ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
@@ -41,20 +42,37 @@ export async function POST(req: NextRequest) {
       streamingEnabled: body.streamingEnabled ?? body.metadata?.streamingEnabled ?? true,
     };
 
+    const stored = body.id ? await DatabaseStore.getProvider(String(body.id), true) : null;
+    const apiKey = String(body.apiKey || stored?.apiKey || '').trim();
     const provider: AIProvider = {
-      id: body.id || 'unsaved-test',
-      name: body.name || 'Unsaved Provider',
+      id: body.id || stored?.id || 'unsaved-test',
+      name: body.name || stored?.name || 'Unsaved Provider',
       type: option.id,
       protocol,
-      baseUrl,
-      apiKey: body.apiKey || '',
+      baseUrl: baseUrl || stored?.baseUrl || '',
+      apiKey,
       enabled: true,
-      defaultModel: body.model || body.defaultModel || '',
-      models: body.models || (body.model ? [body.model] : []),
-      capabilities: option.defaultCapabilities,
+      defaultModel: body.model || body.defaultModel || stored?.defaultModel || '',
+      models: body.models || (body.model ? [body.model] : stored?.models || []),
+      capabilities: body.capabilities || option.defaultCapabilities,
       connectionStatus: 'Untested',
       metadata,
     };
+
+    if (!provider.apiKey) {
+      return applyCorsHeaders(
+        NextResponse.json(
+          {
+            success: false,
+            status: 'Authentication Failed',
+            error: 'API key is required. Paste the key, or Save Provider first and test the saved card.',
+            reachable: false,
+            authenticated: false,
+          },
+          { status: 400 }
+        )
+      );
+    }
 
     const startTime = Date.now();
     const result = await ModelRouter.testConnection(provider);

@@ -258,7 +258,10 @@ export const ProvidersView: React.FC = () => {
       const res = await apiFetch('/api/v1/providers/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload()),
+        body: JSON.stringify({
+          ...buildPayload(),
+          id: editingProvider?.id,
+        }),
       });
       const data = await res.json();
       setDraftTest({
