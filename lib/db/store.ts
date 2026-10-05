@@ -1483,19 +1483,26 @@ export class DatabaseStore {
     }
 
     if (supabase) {
-      try {
-        const { data: inserted, error } = await supabase
-          .from('ai_providers')
-          .insert(toDbProviderRow(newProvider, encryptedKey))
-          .select()
-          .single();
-        if (!error && inserted) {
-          memoryStore.providers.unshift(newProvider);
-          return toPublicProvider(mapRowToProvider(inserted, false));
+      const { data: inserted, error } = await supabase
+        .from('ai_providers')
+        .insert(toDbProviderRow(newProvider, encryptedKey))
+        .select()
+        .single();
+      if (error) {
+        const msg = error.message || 'Failed to save provider';
+        if (/relation|schema cache|does not exist|ai_providers/i.test(msg)) {
+          throw new Error('ai_providers table is missing. Run supabase/migrations/20261004_provider_configuration.sql in the Supabase SQL editor, then retry.');
         }
-      } catch {
-        // Fallback to memory
+        throw new Error(msg);
       }
+      if (inserted) {
+        memoryStore.providers.unshift(newProvider);
+        return toPublicProvider(mapRowToProvider(inserted, false));
+      }
+    }
+
+    if (isProduction()) {
+      throw new Error('Failed to persist provider to database.');
     }
 
     memoryStore.providers.unshift(newProvider);

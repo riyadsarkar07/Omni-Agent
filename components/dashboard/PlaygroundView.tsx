@@ -156,10 +156,14 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
       ]);
 
       const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+      const matchedProvider =
+        providers.find((p) => p.enabled && (p.defaultModel === modelToUse || (p.models || []).includes(modelToUse))) ||
+        (!modelToUse.toLowerCase().includes('gemini')
+          ? providers.find((p) => p.enabled && p.protocol !== 'gemini' && p.id !== 'gemini')
+          : undefined);
       const activeProviderId =
-        selectedAgent?.provider_id ||
-        providers.find((p) => p.models.includes(modelToUse) && p.enabled)?.id ||
-        'gemini';
+        (selectedAgent?.provider_id && selectedAgent.provider_id !== 'gemini' ? selectedAgent.provider_id : undefined) ||
+        matchedProvider?.id;
 
       try {
         const res = await fetch('/api/v1/chat/stream', {
@@ -244,10 +248,14 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
     } else {
       const startTime = Date.now();
       const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+      const matchedProvider =
+        providers.find((p) => p.enabled && (p.defaultModel === modelToUse || (p.models || []).includes(modelToUse))) ||
+        (!modelToUse.toLowerCase().includes('gemini')
+          ? providers.find((p) => p.enabled && p.protocol !== 'gemini' && p.id !== 'gemini')
+          : undefined);
       const activeProviderId =
-        selectedAgent?.provider_id ||
-        providers.find((p) => p.models.includes(modelToUse) && p.enabled)?.id ||
-        'gemini';
+        (selectedAgent?.provider_id && selectedAgent.provider_id !== 'gemini' ? selectedAgent.provider_id : undefined) ||
+        matchedProvider?.id;
       try {
         const res = await fetch('/api/v1/chat', {
           method: 'POST',

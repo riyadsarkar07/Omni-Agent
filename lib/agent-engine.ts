@@ -60,8 +60,11 @@ export class AgentEngine {
     // Determine model and thinking level
     const modelToUse = options.overrideModel || agent.model || 'gemini-3.8-flash';
     const providerId = agent.provider_id || 'gemini';
+    const useExternalProvider =
+      (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') ||
+      !modelToUse.toLowerCase().includes('gemini');
 
-    if (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') {
+    if (useExternalProvider) {
       const startTime = Date.now();
       const messagesForPayload = [];
       for (const h of historyMessages) {
@@ -374,8 +377,11 @@ export class AgentEngine {
 
     const modelToUse = options.overrideModel || agent.model || 'gemini-3.8-flash';
     const providerId = agent.provider_id || 'gemini';
+    const useExternalProvider =
+      (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') ||
+      !modelToUse.toLowerCase().includes('gemini');
 
-    if (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') {
+    if (useExternalProvider) {
       const messagesForPayload = [];
       for (const h of historyMessages) {
         messagesForPayload.push({

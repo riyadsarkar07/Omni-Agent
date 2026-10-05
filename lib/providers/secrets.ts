@@ -8,7 +8,7 @@ function resolveSecretMaterial(): string {
   const configured = getApiKeyHashSecret();
   if (configured) return configured;
   if (isProduction()) {
-    throw new Error('Missing required production secret: API_KEY_HASH_SECRET');
+    throw new Error('Missing Vercel secret API_KEY_HASH_SECRET. Add it, redeploy, then save the provider.');
   }
   return 'omniagent-dev-only-not-for-production';
 }

@@ -156,9 +156,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON public.profiles;
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_projects_updated_at ON public.projects;
 CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_agents_updated_at ON public.agents;
 CREATE TRIGGER update_agents_updated_at BEFORE UPDATE ON public.agents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_conversations_updated_at ON public.conversations;
 CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON public.conversations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Supabase Row Level Security (RLS) Policies
@@ -174,24 +178,31 @@ ALTER TABLE public.agent_tools ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- Allow authenticated users to view profiles
+DROP POLICY IF EXISTS "Users can read own profile" ON public.profiles;
 CREATE POLICY "Users can read own profile" ON public.profiles FOR SELECT USING (auth.uid() = id);
 
 -- Project Members can access their project's resources
+DROP POLICY IF EXISTS "Members can view projects" ON public.projects;
 CREATE POLICY "Members can view projects" ON public.projects FOR SELECT
 USING (id IN (SELECT project_id FROM public.project_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Members can view agents" ON public.agents;
 CREATE POLICY "Members can view agents" ON public.agents FOR SELECT
 USING (project_id IN (SELECT project_id FROM public.project_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Members can manage agents" ON public.agents;
 CREATE POLICY "Members can manage agents" ON public.agents FOR ALL
 USING (project_id IN (SELECT project_id FROM public.project_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Members can view api keys" ON public.api_keys;
 CREATE POLICY "Members can view api keys" ON public.api_keys FOR SELECT
 USING (project_id IN (SELECT project_id FROM public.project_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Members can view conversations" ON public.conversations;
 CREATE POLICY "Members can view conversations" ON public.conversations FOR ALL
 USING (project_id IN (SELECT project_id FROM public.project_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Members can view messages" ON public.messages;
 CREATE POLICY "Members can view messages" ON public.messages FOR ALL
 USING (conversation_id IN (
   SELECT c.id FROM public.conversations c
@@ -199,6 +210,7 @@ USING (conversation_id IN (
   WHERE pm.user_id = auth.uid()
 ));
 
+DROP POLICY IF EXISTS "Members can view usage logs" ON public.usage_logs;
 CREATE POLICY "Members can view usage logs" ON public.usage_logs FOR SELECT
 USING (project_id IN (SELECT project_id FROM public.project_members WHERE user_id = auth.uid()));
 

@@ -4,9 +4,18 @@ import { DatabaseStore } from '../db/store';
 import { sanitizeProviderError } from './secrets';
 import { isValidHttpUrl } from './catalog';
 
+function isGeminiModelId(model?: string): boolean {
+  const value = (model || '').toLowerCase();
+  return value.startsWith('gemini') || value.includes('gemini-');
+}
+
+function isBuiltinGeminiId(providerId?: string): boolean {
+  return !providerId || providerId === 'gemini' || providerId === 'google-gemini' || providerId === 'native';
+}
+
 export class ModelRouter {
-  static async resolveProvider(providerId?: string): Promise<AIProvider> {
-    if (providerId && providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') {
+  static async resolveProvider(providerId?: string, model?: string): Promise<AIProvider> {
+    if (!isBuiltinGeminiId(providerId)) {
       try {
         const provider = await DatabaseStore.getProvider(providerId, true);
         if (provider && provider.enabled) {
@@ -17,8 +26,18 @@ export class ModelRouter {
       }
     }
 
+    if (model && !isGeminiModelId(model)) {
+      const providers = await DatabaseStore.listProviders(true);
+      const match =
+        providers.find((p) => p.enabled && !isBuiltinGeminiId(p.id) && (p.defaultModel === model || (p.models || []).includes(model))) ||
+        providers.find((p) => p.enabled && p.protocol !== 'gemini' && !isBuiltinGeminiId(p.id));
+      if (match) {
+        return this.hydrateBuiltinSecrets(match);
+      }
+    }
+
     const defaultConfigured = await DatabaseStore.getDefaultProvider(true);
-    if (defaultConfigured && defaultConfigured.enabled && defaultConfigured.id !== 'gemini') {
+    if (defaultConfigured && defaultConfigured.enabled && !isBuiltinGeminiId(defaultConfigured.id)) {
       return this.hydrateBuiltinSecrets(defaultConfigured);
     }
 
@@ -87,7 +106,7 @@ export class ModelRouter {
     params: GenerateParams,
     fallbackProviderId?: string
   ): Promise<NormalizedResponse> {
-    const provider = await this.resolveProvider(providerId);
+    const provider = await this.resolveProvider(providerId, params.model);
 
     try {
       return await this.dispatchGenerate(provider, params);
@@ -125,7 +144,7 @@ export class ModelRouter {
     params: GenerateParams,
     fallbackProviderId?: string
   ): Promise<ReadableStream<Uint8Array>> {
-    const provider = await this.resolveProvider(providerId);
+    const provider = await this.resolveProvider(providerId, params.model);
 
     try {
       return await this.dispatchStream(provider, params);

@@ -235,13 +235,13 @@ export const ProvidersView: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         setSuccessMsg(`Provider "${name}" saved successfully.`);
         setIsModalOpen(false);
         fetchProviders();
       } else {
-        setErrorMsg(data.error || 'Failed to save provider.');
+        setErrorMsg(data.error || data.message || `Failed to save provider (${res.status}).`);
       }
     } catch {
       setErrorMsg('An error occurred while saving the provider.');
@@ -614,6 +614,12 @@ export const ProvidersView: React.FC = () => {
             </div>
 
             <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-6 space-y-4">
+              {errorMsg && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest block">API Provider</label>
                 <select

@@ -102,14 +102,18 @@ export async function POST(req: NextRequest) {
       metadata,
     });
 
-    await DatabaseStore.logAudit({
-      project_id: auth.project.id,
-      user_email: 'dashboard@omniagent.io',
-      action: 'PROVIDER_CREATED',
-      resource_type: 'provider',
-      resource_id: provider.id,
-      details: { name: provider.name, type: provider.type, protocol: provider.protocol },
-    });
+    try {
+      await DatabaseStore.logAudit({
+        project_id: auth.project.id,
+        user_email: 'dashboard@omniagent.io',
+        action: 'PROVIDER_CREATED',
+        resource_type: 'provider',
+        resource_id: provider.id,
+        details: { name: provider.name, type: provider.type, protocol: provider.protocol },
+      });
+    } catch {
+      // Provider save must succeed even if audit logging fails.
+    }
 
     return applyCorsHeaders(NextResponse.json({ success: true, provider }, { status: 201 }));
   } catch (err: unknown) {
