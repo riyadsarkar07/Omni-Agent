@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Project, Agent, ApiKey } from '@/lib/types';
+import { apiFetch } from '@/lib/auth/session-client';
 import {
   FolderGit2,
   Plus,
@@ -81,7 +82,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       };
 
       if (editingProject) {
-        const res = await fetch(`/api/v1/projects/${editingProject.id}`, {
+        const res = await apiFetch(`/api/v1/projects/${editingProject.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
           body: JSON.stringify(payload),
@@ -91,7 +92,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           throw new Error(data.message || data.error || 'Failed to update project');
         }
       } else {
-        const res = await fetch('/api/v1/projects', {
+        const res = await apiFetch('/api/v1/projects', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
           body: JSON.stringify(payload),
@@ -120,7 +121,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       return;
     }
     try {
-      await fetch(`/api/v1/projects/${id}`, {
+      await apiFetch(`/api/v1/projects/${id}`, {
         method: 'DELETE',
         headers: { 'x-internal-admin': 'true' },
       });

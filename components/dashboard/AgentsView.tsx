@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Agent, Project } from '@/lib/types';
 import { AIProvider } from '@/lib/providers/types';
+import { apiFetch } from '@/lib/auth/session-client';
 import {
   Bot,
   Plus,
@@ -54,7 +55,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [providers, setProviders] = useState<AIProvider[]>([]);
 
   useEffect(() => {
-    fetch('/api/v1/providers')
+    apiFetch('/api/v1/providers')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.providers) {
@@ -142,7 +143,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       const endpoint = editingAgent ? `/api/v1/agents/${editingAgent.id}` : '/api/v1/agents';
       const method = editingAgent ? 'PATCH' : 'POST';
 
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
         body: JSON.stringify(payload),
@@ -165,7 +166,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const handleDelete = async (agentId: string) => {
     if (!confirm('Are you sure you want to delete this agent?')) return;
     try {
-      await fetch(`/api/v1/agents/${agentId}`, {
+      await apiFetch(`/api/v1/agents/${agentId}`, {
         method: 'DELETE',
         headers: { 'x-internal-admin': 'true' },
       });

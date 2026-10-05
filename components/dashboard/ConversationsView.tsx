@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Conversation, ChatMessage, Project, Agent } from '@/lib/types';
+import { apiFetch } from '@/lib/auth/session-client';
 import {
   MessagesSquare,
   Bot,
@@ -33,7 +34,7 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
       if (!activeProject) return;
       setIsLoadingList(true);
       try {
-        const res = await fetch(`/api/v1/conversations`, {
+        const res = await apiFetch(`/api/v1/conversations`, {
           headers: { 'x-internal-admin': 'true' },
         });
         const data = await res.json();
@@ -62,7 +63,7 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
       }
       setIsLoadingMessages(true);
       try {
-        const res = await fetch(`/api/v1/conversations/${selectedConvId}`, {
+        const res = await apiFetch(`/api/v1/conversations/${selectedConvId}`, {
           headers: { 'x-internal-admin': 'true' },
         });
         const data = await res.json();
@@ -85,7 +86,7 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
     e.stopPropagation();
     if (!confirm('Are you sure you want to delete this conversation thread?')) return;
     try {
-      await fetch(`/api/v1/conversations/${id}`, {
+      await apiFetch(`/api/v1/conversations/${id}`, {
         method: 'DELETE',
         headers: { 'x-internal-admin': 'true' },
       });

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { ApiKey, Project } from '@/lib/types';
+import { apiFetch } from '@/lib/auth/session-client';
 import {
   KeyRound,
   Plus,
@@ -53,7 +54,7 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
     setError(null);
 
     try {
-      const res = await fetch('/api/v1/api-keys', {
+      const res = await apiFetch('/api/v1/api-keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
         body: JSON.stringify({
@@ -86,7 +87,7 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
       return;
     }
     try {
-      await fetch(`/api/v1/api-keys/${id}`, {
+      await apiFetch(`/api/v1/api-keys/${id}`, {
         method: 'DELETE',
         headers: { 'x-internal-admin': 'true' },
       });

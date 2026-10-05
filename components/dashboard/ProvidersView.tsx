@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { AIProvider, ProviderCapability, ProviderKind, ConnectionStatus } from '@/lib/providers/types';
 import { PROVIDER_TYPE_OPTIONS } from '@/lib/providers/catalog';
+import { apiFetch } from '@/lib/auth/session-client';
 
 const CAPABILITIES: { value: ProviderCapability; label: string; description: string }[] = [
   { value: 'TEXT', label: 'Text Generation', description: 'Core natural language completion' },
@@ -100,7 +101,7 @@ export const ProvidersView: React.FC = () => {
 
   const fetchProviders = async () => {
     try {
-      const res = await fetch('/api/v1/providers');
+        const res = await apiFetch('/api/v1/providers');
       if (res.ok) {
         const data = await res.json();
         setProviders(data.providers || []);
@@ -116,7 +117,7 @@ export const ProvidersView: React.FC = () => {
     let ignore = false;
     async function load() {
       try {
-        const res = await fetch('/api/v1/providers');
+      const res = await apiFetch('/api/v1/providers');
         if (res.ok && !ignore) {
           const data = await res.json();
           setProviders(data.providers || []);
@@ -230,7 +231,7 @@ export const ProvidersView: React.FC = () => {
       const payload = buildPayload();
       const url = editingProvider ? `/api/v1/providers/${editingProvider.id}` : '/api/v1/providers';
       const method = editingProvider ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -254,7 +255,7 @@ export const ProvidersView: React.FC = () => {
     setTestingDraft(true);
     setDraftTest(null);
     try {
-      const res = await fetch('/api/v1/providers/test', {
+      const res = await apiFetch('/api/v1/providers/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildPayload()),
@@ -282,7 +283,7 @@ export const ProvidersView: React.FC = () => {
 
   const toggleEnable = async (provider: AIProvider) => {
     try {
-      const res = await fetch(`/api/v1/providers/${provider.id}`, {
+      const res = await apiFetch(`/api/v1/providers/${provider.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !provider.enabled }),
@@ -299,7 +300,7 @@ export const ProvidersView: React.FC = () => {
   const handleTestConnection = async (id: string) => {
     setTestingId(id);
     try {
-      const res = await fetch(`/api/v1/providers/${id}/test`, { method: 'POST' });
+      const res = await apiFetch(`/api/v1/providers/${id}/test`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         showNotification(`Connection successful. Latency ${data.latencyMs}ms.`, 'success');
@@ -317,7 +318,7 @@ export const ProvidersView: React.FC = () => {
   const handleRefreshModels = async (id: string) => {
     setRefreshingId(id);
     try {
-      const res = await fetch(`/api/v1/providers/${id}/models`);
+      const res = await apiFetch(`/api/v1/providers/${id}/models`);
       const data = await res.json();
       if (data.success && data.models?.length) {
         showNotification(`Discovered ${data.models.length} models.`, 'success');
@@ -334,7 +335,7 @@ export const ProvidersView: React.FC = () => {
 
   const handleSetDefault = async (id: string) => {
     try {
-      const res = await fetch(`/api/v1/providers/${id}/default`, { method: 'POST' });
+      const res = await apiFetch(`/api/v1/providers/${id}/default`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
         showNotification('Default provider updated.', 'success');
@@ -350,7 +351,7 @@ export const ProvidersView: React.FC = () => {
   const handleDelete = async (provider: AIProvider) => {
     if (!confirm(`Delete "${provider.name}"? This will not delete unrelated projects or usage data.`)) return;
     try {
-      const res = await fetch(`/api/v1/providers/${provider.id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/providers/${provider.id}`, { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setProviders(providers.filter((p) => p.id !== provider.id));

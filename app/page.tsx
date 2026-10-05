@@ -23,6 +23,7 @@ import {
   SystemHealthView,
   SystemAuditView
 } from '@/components/dashboard/admin';
+import { apiFetch } from '@/lib/auth/session-client';
 
 
 export default function DashboardPage() {
@@ -62,10 +63,10 @@ export default function DashboardPage() {
   const refreshData = useCallback(async () => {
     try {
       const [projRes, agentsRes, keysRes, usageRes] = await Promise.all([
-        fetch('/api/v1/projects'),
-        fetch('/api/v1/agents'),
-        fetch('/api/v1/api-keys'),
-        fetch('/api/v1/usage'),
+        apiFetch('/api/v1/projects'),
+        apiFetch('/api/v1/agents'),
+        apiFetch('/api/v1/api-keys'),
+        apiFetch('/api/v1/usage'),
       ]);
 
       if (projRes.ok) {
@@ -104,12 +105,12 @@ export default function DashboardPage() {
     async function initialLoad() {
       try {
         const [healthRes, projRes, agentsRes, keysRes, usageRes, authRes] = await Promise.all([
-          fetch('/api/v1/health'),
-          fetch('/api/v1/projects'),
-          fetch('/api/v1/agents'),
-          fetch('/api/v1/api-keys'),
-          fetch('/api/v1/usage'),
-          fetch('/api/auth/me'),
+          apiFetch('/api/v1/health'),
+          apiFetch('/api/v1/projects'),
+          apiFetch('/api/v1/agents'),
+          apiFetch('/api/v1/api-keys'),
+          apiFetch('/api/v1/usage'),
+          apiFetch('/api/auth/me'),
         ]);
 
         if (ignore) return;

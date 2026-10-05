@@ -613,22 +613,24 @@ export class DatabaseStore {
   }
 
   static async verifySessionToken(token: string): Promise<User | null> {
+    if (!token) return null;
+
     if (supabase) {
       try {
         const { data: { user }, error } = await supabase.auth.getUser(token);
-        if (error || !user) return null;
+        if (!error && user?.email) {
+          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+          const configuredAdminEmail = getAdminEmail();
+          const isSystemAdmin = Boolean(configuredAdminEmail) && user.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
 
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        const configuredAdminEmail = getAdminEmail();
-        const isSystemAdmin = Boolean(configuredAdminEmail) && user.email?.toLowerCase() === configuredAdminEmail!.toLowerCase();
-        
-        return {
-          id: user.id,
-          email: user.email!,
-          full_name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || '',
-          role: isSystemAdmin ? 'admin' : profile?.role || 'developer',
-          created_at: user.created_at,
-        };
+          return {
+            id: user.id,
+            email: user.email,
+            full_name: profile?.full_name || user.user_metadata?.full_name || user.email.split('@')[0] || '',
+            role: isSystemAdmin ? 'admin' : profile?.role || 'developer',
+            created_at: user.created_at,
+          };
+        }
       } catch (err) {
         console.error('Supabase session verification error, falling back to memoryStore:', err);
       }

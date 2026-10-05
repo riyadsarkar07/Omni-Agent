@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Project, Agent, ApiKey, UsageLog } from '@/lib/types';
+import { apiFetch } from '@/lib/auth/session-client';
 import {
   FolderGit2,
   Bot,
@@ -64,7 +65,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
   useEffect(() => {
     let ignore = false;
-    fetch('/api/v1/providers')
+    apiFetch('/api/v1/providers')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.providers && !ignore) setProviders(data.providers);

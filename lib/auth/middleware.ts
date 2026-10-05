@@ -22,21 +22,35 @@ export async function authenticateApiRequest(
     providedToken = req.headers.get('x-api-key');
   }
 
-  // 2. Check if request is authenticated via session cookie or admin secret
-  const sessionToken = req.cookies.get('omniagent_session')?.value;
+  // 2. Check if request is authenticated via session cookie, bearer session, or admin secret
+  const cookieToken = req.cookies.get('omniagent_session')?.value;
+  const looksLikeApiKey = Boolean(providedToken && /^(ua_live_|ua_test_)/.test(providedToken));
   const adminSecret = getAdminSecret();
   const providedAdminSecret = req.headers.get('x-admin-secret');
   const configuredAdminEmail = getAdminEmail();
 
-  let sessionUser = sessionToken ? await DatabaseStore.verifySessionToken(sessionToken) : null;
-  const defaultProject = (await DatabaseStore.listProjects())[0];
+  let sessionUser = cookieToken ? await DatabaseStore.verifySessionToken(cookieToken) : null;
+  if (!sessionUser && providedToken && !looksLikeApiKey) {
+    sessionUser = await DatabaseStore.verifySessionToken(providedToken);
+  }
+  const projects = await DatabaseStore.listProjects();
+  const defaultProject = projects[0];
 
-  if (sessionUser && defaultProject) {
+  if (sessionUser) {
     const isConfiguredAdmin =
       Boolean(configuredAdminEmail) && sessionUser.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
     return {
       auth: {
-        project: defaultProject,
+        project: defaultProject || {
+          id: 'proj_default_core',
+          name: 'Universal Core Platform',
+          slug: 'core-platform',
+          description: '',
+          rate_limit_rpm: 60,
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
         isAdmin: sessionUser.role === 'admin' || isConfiguredAdmin,
       },
     };

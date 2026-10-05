@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Agent, Project } from '@/lib/types';
 import { AIProvider } from '@/lib/providers/types';
+import { apiFetch } from '@/lib/auth/session-client';
 import {
   Send,
   Sparkles,
@@ -84,7 +85,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
   }, [messages, isChatLoading]);
 
   useEffect(() => {
-    fetch('/api/v1/providers')
+    apiFetch('/api/v1/providers')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.providers) {
@@ -166,7 +167,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
         matchedProvider?.id;
 
       try {
-        const res = await fetch('/api/v1/chat/stream', {
+        const res = await apiFetch('/api/v1/chat/stream', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -257,7 +258,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
         (selectedAgent?.provider_id && selectedAgent.provider_id !== 'gemini' ? selectedAgent.provider_id : undefined) ||
         matchedProvider?.id;
       try {
-        const res = await fetch('/api/v1/chat', {
+        const res = await apiFetch('/api/v1/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -314,7 +315,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
     setMusicResult(null);
 
     try {
-      const res = await fetch('/api/creative/music', {
+      const res = await apiFetch('/api/creative/music', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: musicPrompt, model: musicType }),
@@ -369,7 +370,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
     setVideoStatusText('Initializing Veo 3 Video Engine...');
 
     try {
-      const res = await fetch('/api/creative/video', {
+      const res = await apiFetch('/api/creative/video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -408,7 +409,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
     statusPollingRef.current = setInterval(async () => {
       try {
-        const res = await fetch('/api/creative/video/status', {
+        const res = await apiFetch('/api/creative/video/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ operationName }),
@@ -512,7 +513,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
     setTranscribeError(null);
 
     try {
-      const res = await fetch('/api/creative/transcribe', {
+      const res = await apiFetch('/api/creative/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

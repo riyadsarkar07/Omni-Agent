@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { User } from '@/lib/types';
+import { saveSessionToken } from '@/lib/auth/session-client';
 import { Lock, Mail, User as UserIcon, Shield, ArrowRight, Activity, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -31,6 +32,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(body),
       });
 
@@ -39,6 +41,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
         throw new Error(data.error || 'Authentication failed');
       }
 
+      saveSessionToken(data.session?.token);
       onLoginSuccess(data.user);
     } catch (err: unknown) {
       setError((err as Error).message || 'An error occurred');

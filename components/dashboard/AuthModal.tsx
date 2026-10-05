@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { User } from '@/lib/types';
+import { saveSessionToken, clearSessionToken } from '@/lib/auth/session-client';
 import { Lock, Mail, User as UserIcon, LogOut, CheckCircle, Shield } from 'lucide-react';
 
 interface AuthModalProps {
@@ -42,6 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(body),
       });
 
@@ -50,6 +52,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         throw new Error(data.error || 'Authentication failed');
       }
 
+      saveSessionToken(data.session?.token);
       onLoginSuccess(data.user);
       onClose();
     } catch (err: unknown) {
@@ -61,7 +64,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      clearSessionToken();
       onLogoutSuccess();
       onClose();
     } catch {
