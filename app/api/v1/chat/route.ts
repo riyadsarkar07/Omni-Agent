@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { AgentEngine } from '@/lib/agent-engine';
+import { canAccessConversation, canExecuteAgent } from '@/lib/auth/rbac';
 
 const chatSchema = z.object({
   message: z.string().min(1, 'Message is required').max(10000, 'Message exceeds 10,000 character limit'),
@@ -40,19 +41,28 @@ export async function POST(req: NextRequest) {
 
     const { message, agentId, conversationId, overrideModel, overrideProviderId, thinkingLevel } = parseResult.data;
 
-    // Resolve agent: if agentId provided, verify it belongs to project
+    let conversationUserId = auth.user?.id;
+    if (conversationId) {
+      const existing = await DatabaseStore.getConversation(conversationId);
+      if (!existing || !canAccessConversation(auth, existing.conversation)) {
+        return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
+      }
+      conversationUserId = DatabaseStore.conversationOwnerId(existing.conversation) || auth.user?.id;
+    }
+
+    // Resolve agent: if agentId provided, verify it belongs to project and is executable
     let targetAgent = null;
     if (agentId) {
       targetAgent = await DatabaseStore.getAgent(agentId);
-      if (!targetAgent || (targetAgent.project_id !== auth.project.id && !auth.isAdmin)) {
+      if (!targetAgent || !canExecuteAgent(auth, targetAgent)) {
         return applyCorsHeaders(
           NextResponse.json({ error: 'Agent not found in authenticated project' }, { status: 404 })
         );
       }
     } else {
-      // Default to first agent of project
+      // Default to first published agent of project
       const agents = await DatabaseStore.listAgents(auth.project.id);
-      targetAgent = agents[0] || null;
+      targetAgent = (auth.isAdmin ? agents : agents.filter((a) => a.is_published))[0] || null;
     }
 
     if (!targetAgent) {
@@ -75,7 +85,7 @@ export async function POST(req: NextRequest) {
       conversationId,
       projectId: auth.project.id,
       apiKeyId: auth.apiKey?.id,
-      userId: auth.user?.id,
+      userId: conversationUserId,
       overrideModel,
       overrideThinkingLevel: thinkingLevel,
     });

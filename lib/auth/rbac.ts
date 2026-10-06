@@ -55,3 +55,28 @@ export function requireSessionUser(auth?: SessionAuth | null): NextResponse | nu
 export function actorEmail(auth?: SessionAuth | null): string {
   return auth?.user?.email || 'system';
 }
+
+export function conversationOwnerId(metadata?: Record<string, unknown>): string | undefined {
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  const owner = metadata.owner_id;
+  return typeof owner === 'string' && owner.length > 0 ? owner : undefined;
+}
+
+export function canAccessConversation(
+  auth: { isAdmin?: boolean; user?: { id: string } | null; project?: { id: string } },
+  conversation: { project_id: string; metadata?: Record<string, unknown> }
+): boolean {
+  if (auth.isAdmin) return true;
+  const ownerId = conversationOwnerId(conversation.metadata);
+  if (auth.user?.id) return ownerId === auth.user.id;
+  return Boolean(auth.project?.id) && conversation.project_id === auth.project!.id && !ownerId;
+}
+
+export function canExecuteAgent(
+  auth: { isAdmin?: boolean; project?: { id: string } },
+  agent: { is_published: boolean; project_id: string }
+): boolean {
+  if (auth.isAdmin) return true;
+  if (auth.project?.id && agent.project_id !== auth.project.id) return false;
+  return agent.is_published;
+}

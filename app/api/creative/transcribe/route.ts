@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ai } from '@/lib/gemini';
+import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
+
+export async function OPTIONS() {
+  return applyCorsHeaders(new NextResponse(null, { status: 204 }));
+}
 
 export async function POST(req: NextRequest) {
+  const { errorResponse } = await authenticateApiRequest(req);
+  if (errorResponse) return applyCorsHeaders(errorResponse);
+
   try {
     const { audio, mimeType } = await req.json();
 
     if (!audio) {
-      return NextResponse.json({ error: 'Audio data is required' }, { status: 400 });
+      return applyCorsHeaders(NextResponse.json({ error: 'Audio data is required' }, { status: 400 }));
     }
 
     // Clean up base64 prefix if present
@@ -31,13 +39,15 @@ export async function POST(req: NextRequest) {
       contents: [audioPart, 'Transcribe this audio carefully.'],
     });
 
-    return NextResponse.json({
+    return applyCorsHeaders(NextResponse.json({
       success: true,
       transcription: response.text || 'No transcription text returned.',
       model: 'gemini-3.5-transcribe',
-    });
+    }));
   } catch (error: any) {
     console.error('Audio Transcription Error:', error);
-    return NextResponse.json({ error: error.message || 'An error occurred during audio transcription' }, { status: 500 });
+    return applyCorsHeaders(
+      NextResponse.json({ error: error.message || 'An error occurred during audio transcription' }, { status: 500 })
+    );
   }
 }

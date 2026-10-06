@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { canAccessConversation } from '@/lib/auth/rbac';
 import { z } from 'zod';
-
-function canAccessConversation(
-  auth: { isAdmin: boolean; user?: { id: string }; project: { id: string } },
-  conversation: { project_id: string; metadata?: Record<string, unknown> }
-): boolean {
-  if (auth.isAdmin) return true;
-  const ownerId = conversation.metadata && typeof conversation.metadata.owner_id === 'string'
-    ? conversation.metadata.owner_id
-    : undefined;
-  if (ownerId) return ownerId === auth.user?.id;
-  return conversation.project_id === auth.project.id && Boolean(auth.user);
-}
 
 const renameSchema = z.object({
   title: z.string().min(1).max(120),

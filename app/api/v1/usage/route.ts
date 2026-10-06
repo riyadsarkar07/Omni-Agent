@@ -14,10 +14,26 @@ export async function GET(req: NextRequest) {
   const projectId = auth.isAdmin
     ? req.nextUrl.searchParams.get('projectId') || undefined
     : auth.project.id;
-  const stats = await DatabaseStore.getUsageStats(projectId);
+  const userId = auth.isAdmin ? undefined : auth.user?.id;
+  if (!auth.isAdmin && !userId) {
+    return applyCorsHeaders(
+      NextResponse.json({
+        summary: {
+          totalRequests: 0,
+          successfulRequests: 0,
+          failedRequests: 0,
+          totalTokens: 0,
+          promptTokens: 0,
+          candidateTokens: 0,
+          avgLatencyMs: 0,
+        },
+        recentLogs: [],
+      })
+    );
+  }
+  const stats = await DatabaseStore.getUsageStats(projectId, userId);
 
-  const redactedLogs = auth.isAdmin
-    ? stats.recentLogs.map((log) => ({
+  const redactedLogs = stats.recentLogs.map((log) => ({
         id: log.id,
         projectId: log.project_id,
         agentId: log.agent_id,
@@ -28,10 +44,9 @@ export async function GET(req: NextRequest) {
         totalTokens: log.total_tokens,
         statusCode: log.status_code,
         latencyMs: log.latency_ms,
-        errorMessage: log.error_message,
+        errorMessage: auth.isAdmin ? log.error_message : null,
         createdAt: log.created_at,
-      }))
-    : [];
+      }));
 
   return applyCorsHeaders(
     NextResponse.json({

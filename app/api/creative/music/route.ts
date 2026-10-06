@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ai } from '@/lib/gemini';
+import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
+
+export async function OPTIONS() {
+  return applyCorsHeaders(new NextResponse(null, { status: 204 }));
+}
 
 export async function POST(req: NextRequest) {
+  const { errorResponse } = await authenticateApiRequest(req);
+  if (errorResponse) return applyCorsHeaders(errorResponse);
+
   try {
     const { prompt, model } = await req.json();
 
     if (!prompt) {
-      return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
+      return applyCorsHeaders(NextResponse.json({ error: 'Prompt is required' }, { status: 400 }));
     }
 
     const modelToUse = model === 'pro' ? 'lyria-3-pro-preview' : 'lyria-3-clip-preview';
@@ -38,17 +46,19 @@ export async function POST(req: NextRequest) {
     }
 
     if (!audioBase64) {
-      return NextResponse.json({ error: 'Failed to generate audio content' }, { status: 500 });
+      return applyCorsHeaders(NextResponse.json({ error: 'Failed to generate audio content' }, { status: 500 }));
     }
 
-    return NextResponse.json({
+    return applyCorsHeaders(NextResponse.json({
       success: true,
       audio: `data:${mimeType};base64,${audioBase64}`,
       lyrics: lyrics || null,
       model: modelToUse,
-    });
+    }));
   } catch (error: any) {
     console.error('Music Generation Error:', error);
-    return NextResponse.json({ error: error.message || 'An error occurred during music generation' }, { status: 500 });
+    return applyCorsHeaders(
+      NextResponse.json({ error: error.message || 'An error occurred during music generation' }, { status: 500 })
+    );
   }
 }

@@ -59,8 +59,10 @@ export async function POST(req: NextRequest) {
 
     return applyCorsHeaders(res);
   } catch (err: unknown) {
+    const message = (err as Error).message || 'Invalid credentials';
+    const disabled = /disabled/i.test(message);
     return applyCorsHeaders(
-      NextResponse.json({ error: (err as Error).message || 'Invalid credentials' }, { status: 401 })
+      NextResponse.json({ error: message }, { status: disabled ? 403 : 401 })
     );
   }
 }

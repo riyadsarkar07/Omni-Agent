@@ -127,6 +127,7 @@ export interface UsageLog {
   project_id: string;
   agent_id: string | null;
   api_key_id: string | null;
+  user_id?: string | null;
   endpoint: string;
   model: string;
   prompt_tokens: number;

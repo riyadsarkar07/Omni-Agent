@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Agent, ChatMessage as StoredChatMessage, Conversation, Project } from '@/lib/types';
 import { AIProvider } from '@/lib/providers/types';
 import { apiFetch } from '@/lib/auth/session-client';
@@ -39,9 +39,10 @@ function thinkingEnabledForModel(model: string, provider?: AIProvider): boolean 
 interface ChatWorkspaceProps {
   agents: Agent[];
   activeProject: Project | null;
+  initialConversationId?: string;
 }
 
-export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProject }) => {
+export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProject, initialConversationId }) => {
   const initialAgent = agents[0];
   const [selectedAgentId, setSelectedAgentId] = useState<string>(initialAgent?.id || '');
   const [model, setModel] = useState<string>(initialAgent?.model || '');
@@ -60,7 +61,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
 
   const [inputMessage, setInputMessage] = useState('');
   const [messages, setMessages] = useState<PlaygroundMessage[]>([]);
-  const [conversationId, setConversationId] = useState('');
+  const [conversationId, setConversationId] = useState(initialConversationId || '');
+  const loadedInitialConversationRef = useRef<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatError, setChatError] = useState<ClassifiedChatError | null>(null);
@@ -86,6 +88,44 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
   }, [conversationId]);
 
   useEffect(() => {
+    if (!initialConversationId) return;
+    if (loadedInitialConversationRef.current === initialConversationId) return;
+    loadedInitialConversationRef.current = initialConversationId;
+    let cancelled = false;
+    apiFetch(`/api/v1/conversations/${initialConversationId}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (cancelled || !res.ok) return;
+        const loaded: PlaygroundMessage[] = ((data.messages as StoredChatMessage[]) || []).map((m) => ({
+          id: m.id,
+          role: m.role === 'user' ? 'user' : 'model',
+          text: m.content,
+          toolCalls: m.tool_calls?.map((t) => ({
+            name: t.name,
+            args: t.args,
+            result: m.tool_results?.find((r) => r.name === t.name)?.response,
+          })),
+          tokens: m.tokens_used,
+        }));
+        setMessages(loaded);
+        const agentId = data.conversation?.agent_id as string | undefined;
+        if (agentId) {
+          const agent = agents.find((a) => a.id === agentId);
+          if (agent) {
+            setSelectedAgentId(agent.id);
+            setModel(agent.model);
+            setSystemInstructions(agent.system_instructions);
+            if (agent.provider_id) setSelectedProviderId(agent.provider_id);
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialConversationId, agents]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isChatLoading]);
 
@@ -103,11 +143,47 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch('/api/v1/providers')
+    apiFetch('/api/v1/models')
       .then((res) => res.json())
       .then((data) => {
-        if (cancelled || !data.success || !Array.isArray(data.providers)) return;
-        setProviders((data.providers as AIProvider[]).filter((p) => p.enabled));
+        if (cancelled || !data.success || !Array.isArray(data.models)) return;
+        const byProvider = new Map<string, AIProvider>();
+        for (const entry of data.models as Array<{
+          id: string;
+          providerId: string;
+          providerName: string;
+          protocol?: AIProvider['protocol'];
+          isDefault?: boolean;
+        }>) {
+          const existing = byProvider.get(entry.providerId);
+          if (existing) {
+            if (!existing.models.includes(entry.id)) existing.models.push(entry.id);
+            if (entry.isDefault) {
+              existing.isDefault = true;
+              existing.defaultModel = entry.id;
+            }
+            continue;
+          }
+          byProvider.set(entry.providerId, {
+            id: entry.providerId,
+            name: entry.providerName,
+            type: 'openai-compatible',
+            protocol: entry.protocol || 'openai',
+            baseUrl: '',
+            enabled: true,
+            defaultModel: entry.id,
+            models: [entry.id],
+            capabilities: ['TEXT'],
+            connectionStatus: 'Untested',
+            isDefault: Boolean(entry.isDefault),
+          });
+        }
+        const next = Array.from(byProvider.values());
+        setProviders(next);
+        if (data.defaultModel) {
+          const match = next.find((p) => p.defaultModel === data.defaultModel || p.models.includes(data.defaultModel));
+          if (match) setSelectedProviderId((prev) => prev || match.id);
+        }
       })
       .catch(() => {});
     return () => {

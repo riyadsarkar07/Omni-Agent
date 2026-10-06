@@ -54,6 +54,7 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
     recentLogs: [] as UsageLog[],
   });
   const [chatKey, setChatKey] = useState(0);
+  const [openConversationId, setOpenConversationId] = useState<string | undefined>(undefined);
 
   const loadWorkspace = useCallback(async () => {
     const [projRes, agentsRes, convRes, usageRes] = await Promise.all([
@@ -113,6 +114,14 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
   const grouped = useMemo(() => groupConversations(filteredConversations), [filteredConversations]);
 
   const handleNewChat = () => {
+    setOpenConversationId(undefined);
+    setChatKey((k) => k + 1);
+    setTab('chat');
+    setSidebarOpen(false);
+  };
+
+  const handleOpenConversation = (conversation: Conversation) => {
+    setOpenConversationId(conversation.id);
     setChatKey((k) => k + 1);
     setTab('chat');
     setSidebarOpen(false);
@@ -138,6 +147,10 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
     const res = await apiFetch(`/api/v1/conversations/${conversation.id}`, { method: 'DELETE' });
     if (res.ok) {
       setConversations((prev) => prev.filter((c) => c.id !== conversation.id));
+      if (openConversationId === conversation.id) {
+        setOpenConversationId(undefined);
+        setChatKey((k) => k + 1);
+      }
     }
   };
 
@@ -194,14 +207,13 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
                 {grouped[label].map((c) => (
                   <div
                     key={c.id}
-                    className="group flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-white/5"
+                    className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-white/5 ${
+                      openConversationId === c.id ? 'bg-white/10' : ''
+                    }`}
                   >
                     <button
                       type="button"
-                      onClick={() => {
-                        setTab('chat');
-                        setSidebarOpen(false);
-                      }}
+                      onClick={() => handleOpenConversation(c)}
                       className="flex-1 text-left text-xs text-zinc-300 truncate cursor-pointer"
                     >
                       {c.title}
@@ -292,7 +304,13 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
         <main className="flex-1 min-h-0 overflow-hidden">
           {tab === 'chat' && (
             <div className="h-full p-2 md:p-4 overflow-hidden">
-              <PlaygroundView key={chatKey} agents={agents} activeProject={activeProject} onRefreshAgents={loadWorkspace} />
+              <PlaygroundView
+                key={chatKey}
+                agents={agents}
+                activeProject={activeProject}
+                onRefreshAgents={loadWorkspace}
+                initialConversationId={openConversationId}
+              />
             </div>
           )}
           {tab === 'agents' && (

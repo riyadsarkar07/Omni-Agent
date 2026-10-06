@@ -565,7 +565,9 @@ export class DatabaseStore {
         const role = isSystemAdmin ? 'admin' : profile?.role || 'developer';
         const status: UserStatus = profile?.status === 'disabled' ? 'disabled' : 'active';
         if (status === 'disabled') {
-          throw new Error('This account has been disabled.');
+          const disabledError = new Error('This account has been disabled.');
+          (disabledError as Error & { code?: string }).code = 'ACCOUNT_DISABLED';
+          throw disabledError;
         }
 
         if (!profile) {
@@ -604,6 +606,9 @@ export class DatabaseStore {
           expiresAt: new Date(Date.now() + (data.session.expires_in || 3600) * 1000).toISOString(),
         };
       } catch (err) {
+        if (err instanceof Error && ((err as Error & { code?: string }).code === 'ACCOUNT_DISABLED' || /disabled/i.test(err.message))) {
+          throw err;
+        }
         console.error('Supabase login error, falling back to memoryStore:', err);
       }
     }
@@ -1339,7 +1344,13 @@ export class DatabaseStore {
       try {
         if (id) {
           const { data: existing } = await supabase.from('conversations').select('*').eq('id', id).maybeSingle();
-          if (existing) return existing;
+          if (existing) {
+            const existingOwner = this.conversationOwnerId(existing);
+            if (existingOwner && existingOwner !== ownerId) {
+              throw new Error('Conversation not found');
+            }
+            return existing;
+          }
         }
         const insertId = id || crypto.randomUUID();
         const { data: newConv, error } = await supabase
@@ -1361,7 +1372,13 @@ export class DatabaseStore {
 
     if (id) {
       const existing = memoryStore.conversations.find((c) => c.id === id);
-      if (existing) return existing;
+      if (existing) {
+        const existingOwner = this.conversationOwnerId(existing);
+        if (existingOwner && existingOwner !== ownerId) {
+          throw new Error('Conversation not found');
+        }
+        return existing;
+      }
     }
     const newConv: Conversation = {
       id: id || `conv_${crypto.randomBytes(6).toString('hex')}`,
@@ -1487,12 +1504,11 @@ export class DatabaseStore {
   static async logUsage(entry: Omit<UsageLog, 'id' | 'created_at'>): Promise<UsageLog> {
     if (supabase) {
       try {
-        const { data, error } = await supabase
-          .from('usage_logs')
-          .insert({
+        const payload: Record<string, unknown> = {
             project_id: entry.project_id,
             agent_id: entry.agent_id || null,
             api_key_id: entry.api_key_id || null,
+            user_id: entry.user_id || null,
             endpoint: entry.endpoint,
             model: entry.model,
             prompt_tokens: entry.prompt_tokens || 0,
@@ -1502,9 +1518,14 @@ export class DatabaseStore {
             latency_ms: entry.latency_ms || 0,
             error_message: entry.error_message || null,
             ip_address: entry.ip_address || null,
-          })
-          .select()
-          .single();
+          };
+        let { data, error } = await supabase.from('usage_logs').insert(payload).select().single();
+        if (error && payload.user_id) {
+          const { user_id: _ignored, ...withoutUser } = payload;
+          const retry = await supabase.from('usage_logs').insert(withoutUser).select().single();
+          data = retry.data;
+          error = retry.error;
+        }
         if (!error && data) return data;
       } catch (err) {
         console.error('Supabase logUsage error, falling back to memoryStore:', err);
@@ -1523,7 +1544,7 @@ export class DatabaseStore {
     return log;
   }
 
-  static async getUsageStats(projectId?: string): Promise<{
+  static async getUsageStats(projectId?: string, userId?: string): Promise<{
     totalRequests: number;
     successfulRequests: number;
     failedRequests: number;
@@ -1539,17 +1560,21 @@ export class DatabaseStore {
         if (projectId) {
           query = query.eq('project_id', projectId);
         }
+        if (userId) {
+          query = query.eq('user_id', userId);
+        }
         const { data: logs, error } = await query.order('created_at', { ascending: false });
         if (!error && logs) {
-          const totalRequests = logs.length;
-          const successfulRequests = logs.filter((l) => l.status_code >= 200 && l.status_code < 300).length;
+          const scopedLogs = userId ? logs.filter((l) => l.user_id === userId) : logs;
+          const totalRequests = scopedLogs.length;
+          const successfulRequests = scopedLogs.filter((l) => l.status_code >= 200 && l.status_code < 300).length;
           const failedRequests = totalRequests - successfulRequests;
-          const totalTokens = logs.reduce((acc, curr) => acc + (curr.total_tokens || 0), 0);
-          const promptTokens = logs.reduce((acc, curr) => acc + (curr.prompt_tokens || 0), 0);
-          const candidateTokens = logs.reduce((acc, curr) => acc + (curr.candidate_tokens || 0), 0);
+          const totalTokens = scopedLogs.reduce((acc, curr) => acc + (curr.total_tokens || 0), 0);
+          const promptTokens = scopedLogs.reduce((acc, curr) => acc + (curr.prompt_tokens || 0), 0);
+          const candidateTokens = scopedLogs.reduce((acc, curr) => acc + (curr.candidate_tokens || 0), 0);
           const avgLatencyMs =
             totalRequests > 0
-              ? Math.round(logs.reduce((acc, curr) => acc + (curr.latency_ms || 0), 0) / totalRequests)
+              ? Math.round(scopedLogs.reduce((acc, curr) => acc + (curr.latency_ms || 0), 0) / totalRequests)
               : 0;
 
           return {
@@ -1560,7 +1585,7 @@ export class DatabaseStore {
             promptTokens,
             candidateTokens,
             avgLatencyMs,
-            recentLogs: logs.slice(0, 50),
+            recentLogs: scopedLogs.slice(0, 50),
           };
         }
       } catch (err) {
@@ -1568,9 +1593,12 @@ export class DatabaseStore {
       }
     }
 
-    const logs = projectId
+    let logs = projectId
       ? memoryStore.usageLogs.filter((l) => l.project_id === projectId)
       : memoryStore.usageLogs;
+    if (userId) {
+      logs = logs.filter((l) => l.user_id === userId);
+    }
 
     const totalRequests = logs.length;
     const successfulRequests = logs.filter((l) => l.status_code >= 200 && l.status_code < 300).length;
