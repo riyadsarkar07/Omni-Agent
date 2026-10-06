@@ -46,10 +46,15 @@ ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS default_model TEXT;
 ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS fallback_provider_id TEXT;
 ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS fallback_model TEXT;
 
-DROP TRIGGER IF EXISTS update_ai_providers_updated_at ON public.ai_providers;
-CREATE TRIGGER update_ai_providers_updated_at
-  BEFORE UPDATE ON public.ai_providers
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at_column') THEN
+    DROP TRIGGER IF EXISTS update_ai_providers_updated_at ON public.ai_providers;
+    CREATE TRIGGER update_ai_providers_updated_at
+      BEFORE UPDATE ON public.ai_providers
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
 ALTER TABLE public.ai_providers ENABLE ROW LEVEL SECURITY;
 
@@ -60,3 +65,28 @@ USING (
   OR owner_id = auth.uid()::text
   OR owner_id = auth.uid()::uuid::text
 );
+
+DROP POLICY IF EXISTS "Members can insert personal providers" ON public.ai_providers;
+CREATE POLICY "Members can insert personal providers" ON public.ai_providers FOR INSERT
+WITH CHECK (
+  scope = 'personal'
+  AND (owner_id = auth.uid()::text OR owner_id = auth.uid()::uuid::text)
+);
+
+DROP POLICY IF EXISTS "Members can update own providers" ON public.ai_providers;
+CREATE POLICY "Members can update own providers" ON public.ai_providers FOR UPDATE
+USING (
+  scope = 'global'
+  OR owner_id = auth.uid()::text
+  OR owner_id = auth.uid()::uuid::text
+);
+
+DROP POLICY IF EXISTS "Members can delete own providers" ON public.ai_providers;
+CREATE POLICY "Members can delete own providers" ON public.ai_providers FOR DELETE
+USING (
+  scope = 'personal'
+  AND (owner_id = auth.uid()::text OR owner_id = auth.uid()::uuid::text)
+);
+
+GRANT ALL ON public.ai_providers TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ai_providers TO authenticated;

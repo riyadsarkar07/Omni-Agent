@@ -42,9 +42,9 @@ export const PROVIDER_TYPE_OPTIONS: ProviderTypeOption[] = [
     id: 'openai-compatible',
     label: 'OpenAI Compatible',
     protocol: 'openai',
-    placeholderUrl: 'https://api.example.com/v1',
+    placeholderUrl: 'https://openrouter.ai/api/v1',
     defaultCapabilities: ['TEXT', 'STREAMING', 'TOOL_CALLING', 'FUNCTION_CALLING'],
-    description: 'Any OpenAI-compatible gateway or local server',
+    description: 'Any OpenAI-compatible gateway (OpenRouter, Groq, Together, local, etc.)',
   },
   {
     id: 'anthropic-compatible',
@@ -97,8 +97,23 @@ export function kindFromProtocol(protocol?: ProviderProtocol, existing?: Provide
   return 'openai-compatible';
 }
 
+export function normalizeProviderBaseUrl(baseUrl: string): string {
+  let base = (baseUrl || '').trim().replace(/\/+$/, '');
+  base = base.replace(/\/(chat\/completions|messages|completions)$/i, '');
+  try {
+    const parsed = new URL(base);
+    if (parsed.hostname.toLowerCase().includes('openrouter.ai') && !parsed.pathname.includes('/api/')) {
+      parsed.pathname = '/api/v1';
+      base = parsed.toString().replace(/\/+$/, '');
+    }
+  } catch {
+    // keep original
+  }
+  return base;
+}
+
 export function joinProviderUrl(baseUrl: string, path: string): string {
-  const base = (baseUrl || '').trim().replace(/\/+$/, '');
+  const base = normalizeProviderBaseUrl(baseUrl);
   const suffix = path.replace(/^\/+/, '');
   if (!base) return `/${suffix}`;
   return `${base}/${suffix}`;

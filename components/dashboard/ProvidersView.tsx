@@ -407,7 +407,7 @@ export const ProvidersView: React.FC = () => {
             API Configuration
           </h2>
           <p className="text-xs text-zinc-400">
-            Add OpenAI-compatible APIs, test connectivity, and route agents through saved providers.
+            Add unlimited third-party APIs (OpenRouter, Groq, Together, local). Test, save, and route agents through them.
           </p>
         </div>
         <button
@@ -712,7 +712,7 @@ export const ProvidersView: React.FC = () => {
                   <div className="space-y-2">
                     <input
                       type="text"
-                      placeholder="auto/best-coding"
+                      placeholder="google/gemma-3-27b-it:free"
                       value={modelId}
                       onChange={(e) => setModelId(e.target.value)}
                       className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500 font-mono"
@@ -832,7 +832,9 @@ export const ProvidersView: React.FC = () => {
                   {draftTest.success ? (
                     <>
                       <div>Provider reachable</div>
-                      {draftTest.modelAvailable ? <div>Model available</div> : <div>Model not verified</div>}
+                      {draftTest.authenticated !== false ? <div>API key accepted</div> : null}
+                      {draftTest.modelAvailable ? <div>Model available</div> : <div>Model not verified — you can still save this provider</div>}
+                      {draftTest.error ? <div className="text-amber-300">{draftTest.error}</div> : null}
                     </>
                   ) : (
                     <div>{draftTest.error}</div>

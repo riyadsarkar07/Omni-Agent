@@ -1,5 +1,6 @@
 import { AIProvider } from './types';
 import { sanitizeProviderError } from './secrets';
+import { getAppUrl } from '../config';
 
 export async function fetchWithTimeout(
   url: string,
@@ -18,6 +19,14 @@ export async function fetchWithTimeout(
     throw err;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+function hostnameOf(baseUrl?: string): string {
+  try {
+    return new URL((baseUrl || '').trim()).hostname.toLowerCase();
+  } catch {
+    return '';
   }
 }
 
@@ -45,6 +54,17 @@ export function buildProviderHeaders(provider: AIProvider, extra?: Record<string
   if (metadata.organizationId) {
     headers['OpenAI-Organization'] = metadata.organizationId;
   }
+
+  const host = hostnameOf(provider.baseUrl);
+  if (host.includes('openrouter.ai')) {
+    if (!headers['HTTP-Referer'] && !headers['http-referer']) {
+      headers['HTTP-Referer'] = getAppUrl();
+    }
+    if (!headers['X-Title'] && !headers['x-title']) {
+      headers['X-Title'] = 'OmniAgent';
+    }
+  }
+
   return headers;
 }
 

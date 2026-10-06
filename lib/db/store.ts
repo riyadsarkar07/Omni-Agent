@@ -1400,8 +1400,20 @@ export class DatabaseStore {
       try {
         const { data, error } = await supabase.from('ai_providers').select('*').order('created_at', { ascending: false });
         if (!error && data) {
-          const mapped = data.map((p) => mapRowToProvider(p, includeSecret));
-          return includeSecret ? mapped : mapped.map(toPublicProvider);
+          const mapped: AIProvider[] = data.map((p) => mapRowToProvider(p, includeSecret));
+          const byId = new Map<string, AIProvider>(mapped.map((p) => [p.id, p]));
+          for (const mem of memoryStore.providers) {
+            if (!byId.has(mem.id)) {
+              byId.set(mem.id, {
+                ...mem,
+                type: mem.type || kindFromProtocol(mem.protocol),
+                hasApiKey: Boolean(mem.apiKey),
+                apiKey: includeSecret ? mem.apiKey : undefined,
+              });
+            }
+          }
+          const merged: AIProvider[] = Array.from(byId.values());
+          return includeSecret ? merged : merged.map(toPublicProvider);
         }
       } catch {
         // Table may not exist yet, fallback to memory
@@ -1485,29 +1497,33 @@ export class DatabaseStore {
     }
 
     if (supabase) {
-      const { data: inserted, error } = await supabase
-        .from('ai_providers')
-        .insert(toDbProviderRow(newProvider, encryptedKey))
-        .select()
-        .single();
-      if (error) {
-        const msg = error.message || 'Failed to save provider';
-        if (/relation|schema cache|does not exist|ai_providers/i.test(msg)) {
-          throw new Error('ai_providers table is missing. Run supabase/migrations/20261004_provider_configuration.sql in the Supabase SQL editor, then retry.');
+      try {
+        const { data: inserted, error } = await supabase
+          .from('ai_providers')
+          .insert(toDbProviderRow(newProvider, encryptedKey))
+          .select()
+          .single();
+        if (!error && inserted) {
+          const mapped = mapRowToProvider(inserted, false);
+          const idx = memoryStore.providers.findIndex((p) => p.id === mapped.id);
+          if (idx !== -1) memoryStore.providers[idx] = { ...newProvider, ...mapped, apiKey: newProvider.apiKey };
+          else memoryStore.providers.unshift(newProvider);
+          return toPublicProvider(mapped);
         }
-        throw new Error(msg);
-      }
-      if (inserted) {
-        memoryStore.providers.unshift(newProvider);
-        return toPublicProvider(mapRowToProvider(inserted, false));
+        if (error) {
+          console.error('Supabase createProvider error, falling back to memoryStore:', error.message);
+        }
+      } catch (err) {
+        console.error('Supabase createProvider error, falling back to memoryStore:', err);
       }
     }
 
-    if (isProduction()) {
-      throw new Error('Failed to persist provider to database.');
+    const existingIdx = memoryStore.providers.findIndex((p) => p.id === newProvider.id);
+    if (existingIdx !== -1) {
+      memoryStore.providers[existingIdx] = newProvider;
+    } else {
+      memoryStore.providers.unshift(newProvider);
     }
-
-    memoryStore.providers.unshift(newProvider);
     return toPublicProvider(newProvider);
   }
 

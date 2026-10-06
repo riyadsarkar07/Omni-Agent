@@ -5,7 +5,7 @@ import {
   NormalizedResponse,
   ConnectionTestResult,
 } from './types';
-import { joinProviderUrl, defaultOfficialBaseUrl } from './catalog';
+import { joinProviderUrl, defaultOfficialBaseUrl, normalizeProviderBaseUrl } from './catalog';
 import { buildProviderHeaders, fetchWithTimeout, readSafeError, sleep } from './http';
 import { sanitizeProviderError } from './secrets';
 
@@ -246,10 +246,30 @@ export class GeminiAdapter {
   }
 }
 
+function isRateLimitedStatus(status: number): boolean {
+  return status === 429 || status === 402;
+}
+
+function collectModelIds(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const data = payload as { data?: unknown; models?: unknown };
+  const rows = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
+  return rows
+    .map((m) => {
+      if (typeof m === 'string') return m;
+      if (m && typeof m === 'object') {
+        const row = m as { id?: string; name?: string };
+        return row.id || row.name || '';
+      }
+      return '';
+    })
+    .filter((id): id is string => Boolean(id));
+}
+
 export class OpenAIAdapter {
   static resolveBaseUrl(provider: AIProvider): string {
     const configured = (provider.baseUrl || '').trim();
-    if (configured) return configured.replace(/\/+$/, '');
+    if (configured) return normalizeProviderBaseUrl(configured);
     if (provider.type === 'openai') return defaultOfficialBaseUrl('openai');
     return '';
   }
@@ -277,7 +297,7 @@ export class OpenAIAdapter {
       try {
         const res = await fetchWithTimeout(url, init, this.timeoutMs(provider));
         if (res.status >= 500 && attempt < retries) {
-          await sleep(300 * (attempt + 1));
+          await sleep(400 * (attempt + 1));
           continue;
         }
         return res;
@@ -310,43 +330,133 @@ export class OpenAIAdapter {
     }
 
     const headers = this.getHeaders({ ...provider, apiKey });
+    const discovered: string[] = [...(provider.models || [])];
     let reachable = false;
     let authenticated = false;
-    const discovered: string[] = provider.models || [];
-
-    const model = provider.defaultModel || discovered[0] || provider.models[0];
-    if (!model) {
-      if (authenticated) {
-        return {
-          success: true,
-          status: 'Connected',
-          reachable: true,
-          authenticated: true,
-          modelAvailable: false,
-          models: discovered,
-          error: 'Provider reachable. Enter a Model ID to verify a specific model.',
-        };
-      }
-      return {
-        success: false,
-        status: 'Configuration Error',
-        error: 'A Model ID is required to test this provider',
-        reachable,
-        authenticated,
-        models: discovered,
-      };
+    let openrouterHost = false;
+    try {
+      openrouterHost = new URL(baseUrl).hostname.toLowerCase().includes('openrouter.ai');
+    } catch {
+      openrouterHost = baseUrl.toLowerCase().includes('openrouter.ai');
     }
 
     try {
-      const res = await this.request(provider, joinProviderUrl(baseUrl, '/chat/completions'), {
+      if (openrouterHost) {
+        const keyRes = await this.request(provider, joinProviderUrl(baseUrl, '/key'), {
+          method: 'GET',
+          headers,
+        });
+        reachable = true;
+        if (keyRes.status === 401 || keyRes.status === 403) {
+          return {
+            success: false,
+            status: 'Authentication Failed',
+            error: await readSafeError(keyRes),
+            reachable: true,
+            authenticated: false,
+            models: discovered,
+          };
+        }
+        if (keyRes.ok || isRateLimitedStatus(keyRes.status)) {
+          try {
+            const modelsRes = await this.request(provider, joinProviderUrl(baseUrl, '/models'), {
+              method: 'GET',
+              headers,
+            });
+            if (modelsRes.ok) {
+              const ids = collectModelIds(await modelsRes.json());
+              for (const id of ids) {
+                if (!discovered.includes(id)) discovered.push(id);
+              }
+            }
+          } catch {
+            // optional discovery
+          }
+          return {
+            success: true,
+            status: 'Connected',
+            reachable: true,
+            authenticated: true,
+            modelAvailable: Boolean(provider.defaultModel || discovered[0]),
+            models: discovered,
+            error: isRateLimitedStatus(keyRes.status)
+              ? 'API key accepted. Provider is rate-limited right now; save the provider and retry generation later.'
+              : undefined,
+          };
+        }
+      }
+
+      const modelsRes = await this.request(provider, joinProviderUrl(baseUrl, '/models'), {
+        method: 'GET',
+        headers,
+      });
+      reachable = true;
+
+      if (modelsRes.status === 401 || modelsRes.status === 403) {
+        return {
+          success: false,
+          status: 'Authentication Failed',
+          error: await readSafeError(modelsRes),
+          reachable: true,
+          authenticated: false,
+          models: discovered,
+        };
+      }
+
+      if (modelsRes.ok) {
+        try {
+          const ids = collectModelIds(await modelsRes.json());
+          for (const id of ids) {
+            if (!discovered.includes(id)) discovered.push(id);
+          }
+        } catch {
+          // Body parse is optional for connectivity
+        }
+      } else if (isRateLimitedStatus(modelsRes.status)) {
+        authenticated = true;
+      }
+
+      const model = provider.defaultModel || discovered[0] || provider.models[0];
+      if (!model) {
+        if (authenticated) {
+          return {
+            success: true,
+            status: 'Connected',
+            reachable: true,
+            authenticated: true,
+            modelAvailable: false,
+            models: discovered,
+            error: 'API key accepted. Enter a Model ID to verify a specific model.',
+          };
+        }
+        return {
+          success: false,
+          status: 'Configuration Error',
+          error: 'A Model ID is required to test this provider',
+          reachable,
+          authenticated,
+          models: discovered,
+        };
+      }
+
+      const pingBody: Record<string, unknown> = {
+        model,
+        messages: [{ role: 'user', content: 'ping' }],
+        stream: false,
+      };
+      let res = await this.request(provider, joinProviderUrl(baseUrl, '/chat/completions'), {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 5,
-        }),
+        body: JSON.stringify({ ...pingBody, max_tokens: 1 }),
       });
+      if (res.status === 400) {
+        res = await this.request(provider, joinProviderUrl(baseUrl, '/chat/completions'), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(pingBody),
+        });
+      }
+      reachable = true;
 
       if (res.status === 200) {
         return {
@@ -371,6 +481,17 @@ export class OpenAIAdapter {
       }
 
       if (res.status === 404) {
+        if (authenticated) {
+          return {
+            success: true,
+            status: 'Connected',
+            reachable: true,
+            authenticated: true,
+            modelAvailable: false,
+            models: discovered,
+            error: `Credentials work. Model '${model}' was not found; enter a valid Model ID.`,
+          };
+        }
         return {
           success: false,
           status: 'Model Unavailable',
@@ -382,14 +503,27 @@ export class OpenAIAdapter {
         };
       }
 
-      if (res.status === 429) {
+      if (isRateLimitedStatus(res.status)) {
         return {
-          success: false,
-          status: 'Rate Limited',
-          error: 'Provider rate limit reached. Try again later.',
+          success: true,
+          status: 'Connected',
           reachable: true,
           authenticated: true,
+          modelAvailable: true,
           models: discovered,
+          error: 'Provider accepted the API key. Generation is rate-limited right now; you can still save and use this provider.',
+        };
+      }
+
+      if (authenticated) {
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: discovered.includes(model),
+          models: discovered,
+          error: `Credentials work. Completion probe returned HTTP ${res.status}.`,
         };
       }
 
@@ -402,6 +536,16 @@ export class OpenAIAdapter {
         models: discovered,
       };
     } catch (err: unknown) {
+      if (authenticated) {
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: discovered.length > 0,
+          models: discovered,
+        };
+      }
       return {
         success: false,
         status: 'Invalid Base URL',
@@ -423,13 +567,8 @@ export class OpenAIAdapter {
       });
 
       if (res.ok) {
-        const data = await res.json();
-        if (data && Array.isArray(data.data)) {
-          const ids = data.data
-            .map((m: { id?: string }) => m.id)
-            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
-          if (ids.length > 0) return ids;
-        }
+        const ids = collectModelIds(await res.json());
+        if (ids.length > 0) return ids;
       }
       return provider.models || [];
     } catch {
@@ -463,9 +602,10 @@ export class OpenAIAdapter {
       model,
       messages: this.buildMessages(params),
       temperature: params.temperature ?? provider.metadata?.temperature ?? 0.7,
-      top_p: params.topP,
-      max_tokens: params.maxOutputTokens ?? provider.metadata?.maxTokens,
     };
+    if (typeof params.topP === 'number') body.top_p = params.topP;
+    const maxTokens = params.maxOutputTokens ?? provider.metadata?.maxTokens;
+    if (typeof maxTokens === 'number' && maxTokens > 0) body.max_tokens = maxTokens;
 
     const res = await this.request(provider, url, {
       method: 'POST',
@@ -507,10 +647,11 @@ export class OpenAIAdapter {
       model,
       messages: this.buildMessages(params),
       temperature: params.temperature ?? provider.metadata?.temperature ?? 0.7,
-      top_p: params.topP,
-      max_tokens: params.maxOutputTokens ?? provider.metadata?.maxTokens,
       stream: true,
     };
+    if (typeof params.topP === 'number') body.top_p = params.topP;
+    const maxTokens = params.maxOutputTokens ?? provider.metadata?.maxTokens;
+    if (typeof maxTokens === 'number' && maxTokens > 0) body.max_tokens = maxTokens;
 
     const res = await this.request(provider, url, {
       method: 'POST',
@@ -577,7 +718,7 @@ export class OpenAIAdapter {
 export class AnthropicAdapter {
   static resolveBaseUrl(provider: AIProvider): string {
     const configured = (provider.baseUrl || '').trim();
-    if (configured) return configured.replace(/\/+$/, '');
+    if (configured) return normalizeProviderBaseUrl(configured);
     if (provider.type === 'anthropic') return defaultOfficialBaseUrl('anthropic');
     return '';
   }
@@ -648,7 +789,14 @@ export class AnthropicAdapter {
       }
 
       if (res.status === 429) {
-        return { success: false, status: 'Rate Limited', error: 'Provider rate limit reached', reachable: true, authenticated: true };
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: true,
+          error: 'API key accepted. Provider is rate-limited right now; save the provider and retry generation later.',
+        };
       }
 
       return {

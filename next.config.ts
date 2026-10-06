@@ -22,6 +22,9 @@ const nextConfig: NextConfig & { experimental?: Record<string, unknown> } = {
   output: 'standalone',
   transpilePackages: ['motion'],
   allowedDevOrigins: ['*.monkeycode-ai.live'],
+  experimental: {
+    allowedHosts: ['.monkeycode-ai.live'],
+  },
   webpack: (config, {dev}) => {
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
     // Do not modify—file watching is disabled to prevent flickering during agent edits.
