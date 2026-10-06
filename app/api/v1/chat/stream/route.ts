@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
       conversationId,
       projectId: auth.project.id,
       apiKeyId: auth.apiKey?.id,
+      userId: auth.user?.id,
       overrideModel,
       overrideThinkingLevel: thinkingLevel,
     });

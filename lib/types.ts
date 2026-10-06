@@ -5,11 +5,16 @@ export type GeminiModelId =
   | 'gemini-flash-latest'
   | 'gemini-3.5-flash';
 
+export type UserRole = 'admin' | 'developer' | 'viewer';
+export type UserStatus = 'active' | 'disabled';
+
 export interface User {
   id: string;
   email: string;
   full_name?: string;
-  role: 'admin' | 'developer' | 'viewer';
+  role: UserRole;
+  status?: UserStatus;
+  last_active_at?: string | null;
   created_at: string;
 }
 
@@ -79,6 +84,24 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   message_count?: number;
+}
+
+export interface PlatformOverview {
+  totalUsers: number;
+  activeUsers: number;
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  totalTokens: number;
+  avgLatencyMs: number;
+  providerCount: number;
+  enabledProviderCount: number;
+  agentCount: number;
+  projectCount: number;
+  conversationCount: number;
+  databaseAdapter: string;
+  databaseStatus: string;
+  geminiConfigured: boolean;
 }
 
 export interface ChatMessage {

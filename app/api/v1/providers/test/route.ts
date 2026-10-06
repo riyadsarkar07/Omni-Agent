@@ -5,6 +5,7 @@ import { ModelRouter } from '@/lib/providers/router';
 import { protocolFromKind, getProviderTypeOption, isValidHttpUrl } from '@/lib/providers/catalog';
 import { AIProvider, ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
+import { requireAdmin } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -14,6 +15,8 @@ export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const body = await req.json();

@@ -25,7 +25,7 @@ export default function NotFound() {
         </p>
 
         <Link
-          href="/"
+          href="/workspace"
           className="inline-flex items-center gap-2 py-2.5 px-6 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl shadow-lg shadow-cyan-500/20 transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />

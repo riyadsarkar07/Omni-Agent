@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { getAdminEmail } from '@/lib/config';
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -11,6 +12,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   const { id } = await params;
   const keys = await DatabaseStore.listApiKeys();
@@ -25,7 +28,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   await DatabaseStore.logAudit({
     project_id: existingKey.project_id,
-    user_email: getAdminEmail() || 'system',
+    user_email: actorEmail(auth) || getAdminEmail() || 'system',
     action: 'API_KEY_REVOKED',
     resource_type: 'api_key',
     resource_id: id,

@@ -4,12 +4,7 @@ import { DatabaseStore } from '@/lib/db/store';
 import { getProviderTypeOption, protocolFromKind, isValidHttpUrl } from '@/lib/providers/catalog';
 import { ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
-
-function assertManageAccess(auth: { isAdmin: boolean }, provider?: { isSystem?: boolean; id?: string; protocol?: string }): boolean {
-  if (auth.isAdmin) return true;
-  if (provider?.isSystem && provider.protocol === 'gemini' && provider.id === 'gemini') return false;
-  return true;
-}
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -19,6 +14,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const { id } = await params;
@@ -38,17 +35,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const { id } = await params;
     const existing = await DatabaseStore.getProvider(id, true);
     if (!existing) {
       return applyCorsHeaders(NextResponse.json({ success: false, error: 'Provider not found' }, { status: 404 }));
-    }
-    if (!assertManageAccess(auth, existing)) {
-      return applyCorsHeaders(
-        NextResponse.json({ success: false, error: 'This system provider cannot be modified' }, { status: 403 })
-      );
     }
 
     const body = await req.json();
@@ -81,12 +75,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ? body.models.filter((m: unknown): m is string => typeof m === 'string' && m.trim().length > 0)
       : undefined;
 
-    if (body.isDefault && !auth.isAdmin) {
-      return applyCorsHeaders(
-        NextResponse.json({ success: false, error: 'Only admins can set the default provider' }, { status: 403 })
-      );
-    }
-
     const updated = await DatabaseStore.updateProvider(id, {
       name: body.name !== undefined ? String(body.name).trim() : existing.name,
       type: option.id,
@@ -110,7 +98,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await DatabaseStore.logAudit({
       project_id: auth.project.id,
-      user_email: 'dashboard@omniagent.io',
+      user_email: actorEmail(auth),
       action: 'PROVIDER_UPDATED',
       resource_type: 'provider',
       resource_id: id,
@@ -129,17 +117,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const { id } = await params;
     const existing = await DatabaseStore.getProvider(id);
     if (!existing) {
       return applyCorsHeaders(NextResponse.json({ success: false, error: 'Provider not found' }, { status: 404 }));
-    }
-    if (!assertManageAccess(auth, existing)) {
-      return applyCorsHeaders(
-        NextResponse.json({ success: false, error: 'This system provider cannot be deleted' }, { status: 403 })
-      );
     }
 
     const deleted = await DatabaseStore.deleteProvider(id);
@@ -149,7 +134,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     await DatabaseStore.logAudit({
       project_id: auth.project.id,
-      user_email: 'dashboard@omniagent.io',
+      user_email: actorEmail(auth),
       action: 'PROVIDER_DELETED',
       resource_type: 'provider',
       resource_id: id,

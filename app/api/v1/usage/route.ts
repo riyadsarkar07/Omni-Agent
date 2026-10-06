@@ -11,24 +11,27 @@ export async function GET(req: NextRequest) {
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
-  const projectId = req.nextUrl.searchParams.get('projectId') || (auth.isAdmin ? undefined : auth.project.id);
+  const projectId = auth.isAdmin
+    ? req.nextUrl.searchParams.get('projectId') || undefined
+    : auth.project.id;
   const stats = await DatabaseStore.getUsageStats(projectId);
 
-  // Redact IP and sensitive data in returned usage logs
-  const redactedLogs = stats.recentLogs.map((log) => ({
-    id: log.id,
-    projectId: log.project_id,
-    agentId: log.agent_id,
-    endpoint: log.endpoint,
-    model: log.model,
-    promptTokens: log.prompt_tokens,
-    candidateTokens: log.candidate_tokens,
-    totalTokens: log.total_tokens,
-    statusCode: log.status_code,
-    latencyMs: log.latency_ms,
-    errorMessage: log.error_message,
-    createdAt: log.created_at,
-  }));
+  const redactedLogs = auth.isAdmin
+    ? stats.recentLogs.map((log) => ({
+        id: log.id,
+        projectId: log.project_id,
+        agentId: log.agent_id,
+        endpoint: log.endpoint,
+        model: log.model,
+        promptTokens: log.prompt_tokens,
+        candidateTokens: log.candidate_tokens,
+        totalTokens: log.total_tokens,
+        statusCode: log.status_code,
+        latencyMs: log.latency_ms,
+        errorMessage: log.error_message,
+        createdAt: log.created_at,
+      }))
+    : [];
 
   return applyCorsHeaders(
     NextResponse.json({

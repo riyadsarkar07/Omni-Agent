@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { getAdminEmail } from '@/lib/config';
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 const createProjectSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(60),
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const rawBody = await req.json();
@@ -51,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     await DatabaseStore.logAudit({
       project_id: newProject.id,
-      user_email: getAdminEmail() || 'system',
+      user_email: actorEmail(auth) || getAdminEmail() || 'system',
       action: 'PROJECT_CREATED',
       resource_type: 'project',
       resource_id: newProject.id,

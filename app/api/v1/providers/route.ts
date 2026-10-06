@@ -5,6 +5,7 @@ import { ModelRouter } from '@/lib/providers/router';
 import { getProviderTypeOption, protocolFromKind, isValidHttpUrl, PROVIDER_TYPE_OPTIONS } from '@/lib/providers/catalog';
 import { ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -14,6 +15,9 @@ export async function GET(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const providers = await DatabaseStore.listProviders();
@@ -38,6 +42,9 @@ export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const body = await req.json();
@@ -102,7 +109,7 @@ export async function POST(req: NextRequest) {
     try {
       await DatabaseStore.logAudit({
         project_id: auth.project.id,
-        user_email: 'dashboard@omniagent.io',
+        user_email: actorEmail(auth),
         action: 'PROVIDER_CREATED',
         resource_type: 'provider',
         resource_id: provider.id,

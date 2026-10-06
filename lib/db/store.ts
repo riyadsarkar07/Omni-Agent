@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession } from '../types';
+import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview } from '../types';
 import { AIProvider } from '../providers/types';
 import { hashApiKey } from '../auth/api-key';
 import { getAdminEmail, getAdminPassword, isProduction } from '../config';
@@ -229,6 +229,8 @@ function buildInitialUsers(): StoredUser[] {
       email: adminEmail.toLowerCase(),
       full_name: 'Platform Administrator',
       role: 'admin',
+      status: 'active',
+      last_active_at: new Date().toISOString(),
       password_hash,
       salt,
       created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
@@ -474,6 +476,8 @@ export class DatabaseStore {
           email: email.toLowerCase(),
           full_name: fullName || email.split('@')[0],
           role: role,
+          status: 'active',
+          last_active_at: new Date().toISOString(),
         });
 
         // Add to default project member list
@@ -489,6 +493,8 @@ export class DatabaseStore {
             email: email.toLowerCase(),
             full_name: fullName || email.split('@')[0],
             role,
+            status: 'active',
+            last_active_at: new Date().toISOString(),
             created_at: data.user.created_at,
           },
           token: data.session?.access_token || '',
@@ -517,6 +523,8 @@ export class DatabaseStore {
       email: email.toLowerCase(),
       full_name: fullName || email.split('@')[0],
       role: isSystemAdmin ? 'admin' : 'developer',
+      status: 'active',
+      last_active_at: new Date().toISOString(),
       password_hash,
       salt,
       created_at: new Date().toISOString(),
@@ -555,6 +563,10 @@ export class DatabaseStore {
         const configuredAdminEmail = getAdminEmail();
         const isSystemAdmin = Boolean(configuredAdminEmail) && email.toLowerCase() === configuredAdminEmail!.toLowerCase();
         const role = isSystemAdmin ? 'admin' : profile?.role || 'developer';
+        const status: UserStatus = profile?.status === 'disabled' ? 'disabled' : 'active';
+        if (status === 'disabled') {
+          throw new Error('This account has been disabled.');
+        }
 
         if (!profile) {
           // Sync profile to database
@@ -565,10 +577,17 @@ export class DatabaseStore {
               email: email.toLowerCase(),
               full_name: data.user.user_metadata?.full_name || email.split('@')[0],
               role,
+              status: 'active',
+              last_active_at: new Date().toISOString(),
             })
             .select()
             .single();
           if (newProfile) profile = newProfile;
+        } else {
+          await supabase
+            .from('profiles')
+            .update({ last_active_at: new Date().toISOString() })
+            .eq('id', data.user.id);
         }
 
         return {
@@ -577,6 +596,8 @@ export class DatabaseStore {
             email: data.user.email!,
             full_name: profile?.full_name || data.user.user_metadata?.full_name || email.split('@')[0],
             role,
+            status,
+            last_active_at: new Date().toISOString(),
             created_at: data.user.created_at,
           },
           token: data.session.access_token,
@@ -597,6 +618,11 @@ export class DatabaseStore {
     if (computedHash !== user.password_hash) {
       throw new Error('Invalid email or password.');
     }
+
+    if (user.status === 'disabled') {
+      throw new Error('This account has been disabled.');
+    }
+    user.last_active_at = new Date().toISOString();
 
     const token = `sess_${crypto.randomBytes(24).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 86400000 * 7).toISOString();
@@ -631,6 +657,8 @@ export class DatabaseStore {
             email: user.email,
             full_name: profile?.full_name || user.user_metadata?.full_name || user.email.split('@')[0] || '',
             role: isSystemAdmin ? 'admin' : profile?.role || 'developer',
+            status: profile?.status === 'disabled' ? 'disabled' : 'active',
+            last_active_at: profile?.last_active_at || null,
             created_at: user.created_at,
           };
         }
@@ -653,6 +681,181 @@ export class DatabaseStore {
 
     const { password_hash: _, salt: __, ...userWithoutSecrets } = user;
     return userWithoutSecrets;
+  }
+
+  static toPublicUser(user: StoredUser | User): User {
+    return {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role,
+      status: user.status === 'disabled' ? 'disabled' : 'active',
+      last_active_at: user.last_active_at || null,
+      created_at: user.created_at,
+    };
+  }
+
+  static async listUsers(query?: string): Promise<User[]> {
+    const needle = query?.trim().toLowerCase();
+    if (supabase) {
+      try {
+        let req = supabase.from('profiles').select('*').order('created_at', { ascending: false });
+        const { data, error } = await req;
+        if (!error && data) {
+          const users = data.map((row) => this.toPublicUser({
+            id: row.id,
+            email: row.email,
+            full_name: row.full_name,
+            role: row.role || 'developer',
+            status: row.status === 'disabled' ? 'disabled' : 'active',
+            last_active_at: row.last_active_at || null,
+            created_at: row.created_at,
+          }));
+          if (!needle) return users;
+          return users.filter(
+            (u) =>
+              u.email.toLowerCase().includes(needle) ||
+              (u.full_name || '').toLowerCase().includes(needle)
+          );
+        }
+      } catch (err) {
+        console.error('Supabase listUsers error, falling back to memoryStore:', err);
+      }
+    }
+
+    const users = memoryStore.users.map((u) => this.toPublicUser(u));
+    if (!needle) return users;
+    return users.filter(
+      (u) =>
+        u.email.toLowerCase().includes(needle) ||
+        (u.full_name || '').toLowerCase().includes(needle)
+    );
+  }
+
+  static async getUserById(id: string): Promise<User | null> {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+        if (!error && data) {
+          return this.toPublicUser({
+            id: data.id,
+            email: data.email,
+            full_name: data.full_name,
+            role: data.role || 'developer',
+            status: data.status === 'disabled' ? 'disabled' : 'active',
+            last_active_at: data.last_active_at || null,
+            created_at: data.created_at,
+          });
+        }
+      } catch (err) {
+        console.error('Supabase getUserById error, falling back to memoryStore:', err);
+      }
+    }
+    const user = memoryStore.users.find((u) => u.id === id);
+    return user ? this.toPublicUser(user) : null;
+  }
+
+  static async updateUser(
+    id: string,
+    updates: { role?: UserRole; status?: UserStatus; full_name?: string }
+  ): Promise<User | null> {
+    if (supabase) {
+      try {
+        const payload: Record<string, unknown> = {};
+        if (updates.role) payload.role = updates.role;
+        if (updates.status) payload.status = updates.status;
+        if (updates.full_name !== undefined) payload.full_name = updates.full_name;
+        const { data, error } = await supabase.from('profiles').update(payload).eq('id', id).select().maybeSingle();
+        if (!error && data) {
+          return this.toPublicUser({
+            id: data.id,
+            email: data.email,
+            full_name: data.full_name,
+            role: data.role || 'developer',
+            status: data.status === 'disabled' ? 'disabled' : 'active',
+            last_active_at: data.last_active_at || null,
+            created_at: data.created_at,
+          });
+        }
+      } catch (err) {
+        console.error('Supabase updateUser error, falling back to memoryStore:', err);
+      }
+    }
+
+    const user = memoryStore.users.find((u) => u.id === id);
+    if (!user) return null;
+    if (updates.role) user.role = updates.role;
+    if (updates.status) user.status = updates.status;
+    if (updates.full_name !== undefined) user.full_name = updates.full_name;
+    return this.toPublicUser(user);
+  }
+
+  static async touchUserActivity(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    if (supabase) {
+      try {
+        await supabase.from('profiles').update({ last_active_at: now }).eq('id', id);
+      } catch {
+        //
+      }
+    }
+    const user = memoryStore.users.find((u) => u.id === id);
+    if (user) user.last_active_at = now;
+  }
+
+  static async updateUserProfile(id: string, updates: { full_name?: string }): Promise<User | null> {
+    return this.updateUser(id, updates);
+  }
+
+  static async getPlatformOverview(): Promise<PlatformOverview> {
+    const [users, projects, agents, providers, usage] = await Promise.all([
+      this.listUsers(),
+      this.listProjects(),
+      this.listAgents(),
+      this.listProviders(),
+      this.getUsageStats(),
+    ]);
+    const conversations = memoryStore.conversations.length;
+    return {
+      totalUsers: users.length,
+      activeUsers: users.filter((u) => u.status !== 'disabled').length,
+      totalRequests: usage.totalRequests,
+      successfulRequests: usage.successfulRequests,
+      failedRequests: usage.failedRequests,
+      totalTokens: usage.totalTokens,
+      avgLatencyMs: usage.avgLatencyMs,
+      providerCount: providers.length,
+      enabledProviderCount: providers.filter((p) => p.enabled).length,
+      agentCount: agents.length,
+      projectCount: projects.length,
+      conversationCount: conversations,
+      databaseAdapter: this.isSupabaseConfigured() ? 'supabase-postgresql' : 'in-memory-preview-resilient',
+      databaseStatus: this.isSupabaseConfigured() ? 'connected' : 'connected',
+      geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    };
+  }
+
+  static async renameConversation(id: string, title: string): Promise<Conversation | null> {
+    const trimmed = title.trim().slice(0, 80);
+    if (!trimmed) return null;
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('conversations')
+          .update({ title: trimmed, updated_at: new Date().toISOString() })
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+        if (!error && data) return data;
+      } catch (err) {
+        console.error('Supabase renameConversation error, falling back to memoryStore:', err);
+      }
+    }
+    const conv = memoryStore.conversations.find((c) => c.id === id);
+    if (!conv) return null;
+    conv.title = trimmed;
+    conv.updated_at = new Date().toISOString();
+    return conv;
   }
 
   // Projects
@@ -1046,10 +1249,13 @@ export class DatabaseStore {
   }
 
   // Conversations & Messages
-  static async listConversations(projectId: string, agentId?: string): Promise<Conversation[]> {
+  static async listConversations(projectId?: string, agentId?: string): Promise<Conversation[]> {
     if (supabase) {
       try {
-        let query = supabase.from('conversations').select('*').eq('project_id', projectId);
+        let query = supabase.from('conversations').select('*');
+        if (projectId) {
+          query = query.eq('project_id', projectId);
+        }
         if (agentId) {
           query = query.eq('agent_id', agentId);
         }
@@ -1075,11 +1281,12 @@ export class DatabaseStore {
     }
 
     return memoryStore.conversations
-      .filter((c) => c.project_id === projectId && (!agentId || c.agent_id === agentId))
+      .filter((c) => (!projectId || c.project_id === projectId) && (!agentId || c.agent_id === agentId))
       .map((c) => ({
         ...c,
         message_count: memoryStore.messages.filter((m) => m.conversation_id === c.id).length,
-      }));
+      }))
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
   }
 
   static async getConversation(id: string): Promise<{ conversation: Conversation; messages: ChatMessage[] } | null> {
@@ -1109,11 +1316,24 @@ export class DatabaseStore {
     return { conversation: conv, messages: msgs };
   }
 
+  static conversationOwnerId(conversation: Conversation): string | undefined {
+    const meta = conversation.metadata;
+    if (!meta || typeof meta !== 'object') return undefined;
+    const owner = (meta as Record<string, unknown>).owner_id;
+    return typeof owner === 'string' ? owner : undefined;
+  }
+
+  static async listUserConversations(userId: string, projectId?: string): Promise<Conversation[]> {
+    const all = await this.listConversations(projectId);
+    return all.filter((c) => this.conversationOwnerId(c) === userId);
+  }
+
   static async getOrCreateConversation(
     id: string | undefined,
     projectId: string,
     agentId: string,
-    title = 'New Conversation'
+    title = 'New Conversation',
+    ownerId?: string
   ): Promise<Conversation> {
     if (supabase) {
       try {
@@ -1129,7 +1349,7 @@ export class DatabaseStore {
             project_id: projectId,
             agent_id: agentId,
             title,
-            metadata: {},
+            metadata: ownerId ? { owner_id: ownerId } : {},
           })
           .select()
           .single();
@@ -1148,6 +1368,7 @@ export class DatabaseStore {
       project_id: projectId,
       agent_id: agentId,
       title,
+      metadata: ownerId ? { owner_id: ownerId } : {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };

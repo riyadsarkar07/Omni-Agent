@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { z } from 'zod';
+
+function canAccessConversation(
+  auth: { isAdmin: boolean; user?: { id: string }; project: { id: string } },
+  conversation: { project_id: string; metadata?: Record<string, unknown> }
+): boolean {
+  if (auth.isAdmin) return true;
+  const ownerId = conversation.metadata && typeof conversation.metadata.owner_id === 'string'
+    ? conversation.metadata.owner_id
+    : undefined;
+  if (ownerId) return ownerId === auth.user?.id;
+  return conversation.project_id === auth.project.id && Boolean(auth.user);
+}
+
+const renameSchema = z.object({
+  title: z.string().min(1).max(120),
+});
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -14,7 +31,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const data = await DatabaseStore.getConversation(id);
 
-  if (!data || (data.conversation.project_id !== auth.project.id && !auth.isAdmin)) {
+  if (!data || !canAccessConversation(auth, data.conversation)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
   }
 
@@ -34,17 +51,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const data = await DatabaseStore.getConversation(id);
 
-  if (!data || (data.conversation.project_id !== auth.project.id && !auth.isAdmin)) {
+  if (!data || !canAccessConversation(auth, data.conversation)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
   }
 
   try {
     const body = await req.json();
-    const title = typeof body.title === 'string' ? body.title.trim() : '';
-    if (!title) {
-      return applyCorsHeaders(NextResponse.json({ error: 'Title is required' }, { status: 400 }));
+    const parse = renameSchema.safeParse(body);
+    if (!parse.success) {
+      return applyCorsHeaders(
+        NextResponse.json({ error: 'Validation Error', details: parse.error.flatten().fieldErrors }, { status: 400 })
+      );
     }
-    const conversation = await DatabaseStore.updateConversation(id, { title });
+    const conversation = await DatabaseStore.updateConversation(id, { title: parse.data.title });
     return applyCorsHeaders(NextResponse.json({ conversation }));
   } catch (err: unknown) {
     return applyCorsHeaders(
@@ -61,7 +80,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const data = await DatabaseStore.getConversation(id);
 
-  if (!data || (data.conversation.project_id !== auth.project.id && !auth.isAdmin)) {
+  if (!data || !canAccessConversation(auth, data.conversation)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
   }
 

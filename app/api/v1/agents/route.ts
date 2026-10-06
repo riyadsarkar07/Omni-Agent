@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 const createAgentSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(80),
@@ -33,14 +34,17 @@ export async function GET(req: NextRequest) {
 
   const projectId = req.nextUrl.searchParams.get('projectId') || (auth.isAdmin ? undefined : auth.project.id);
   const agents = await DatabaseStore.listAgents(projectId);
+  const visible = auth.isAdmin ? agents : agents.filter((a) => a.is_published);
 
-  return applyCorsHeaders(NextResponse.json({ agents, total: agents.length }));
+  return applyCorsHeaders(NextResponse.json({ agents: visible, total: visible.length }));
 }
 
 export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const rawBody = await req.json();
@@ -64,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     await DatabaseStore.logAudit({
       project_id: targetProjectId,
-      user_email: 'api_user@omniagent.io',
+      user_email: actorEmail(auth),
       action: 'AGENT_CREATED',
       resource_type: 'agent',
       resource_id: newAgent.id,

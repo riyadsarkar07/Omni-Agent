@@ -12,12 +12,18 @@ export async function GET(req: NextRequest) {
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
   const agentId = req.nextUrl.searchParams.get('agentId') || undefined;
-  const conversations = await DatabaseStore.listConversations(auth.project.id, agentId);
+  const conversations = auth.isAdmin
+    ? await DatabaseStore.listConversations(auth.project.id, agentId)
+    : await DatabaseStore.listUserConversations(auth.user?.id || '', auth.project.id);
+
+  const scoped = agentId && !auth.isAdmin
+    ? conversations.filter((c) => c.agent_id === agentId)
+    : conversations;
 
   return applyCorsHeaders(
     NextResponse.json({
-      conversations,
-      total: conversations.length,
+      conversations: scoped,
+      total: scoped.length,
       projectId: auth.project.id,
     })
   );

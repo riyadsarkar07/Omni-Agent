@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DatabaseStore, DEMO_PRESET_KEY } from '../db/store';
 import { hashApiKey, checkRateLimit } from './api-key';
-import { Project, ApiKey } from '../types';
+import { Project, ApiKey, User } from '../types';
 import { getAdminEmail, getAdminSecret, isProduction } from '../config';
+import { isUserActive } from './rbac';
 
 export interface AuthContext {
   project: Project;
   apiKey?: ApiKey;
   isAdmin: boolean;
+  user?: User;
 }
 
 export async function authenticateApiRequest(
@@ -37,8 +39,20 @@ export async function authenticateApiRequest(
   const defaultProject = projects[0];
 
   if (sessionUser) {
+    if (!isUserActive(sessionUser)) {
+      return {
+        errorResponse: NextResponse.json(
+          {
+            error: 'Forbidden: Account Disabled',
+            message: 'This account has been disabled. Contact an administrator.',
+          },
+          { status: 403 }
+        ),
+      };
+    }
     const isConfiguredAdmin =
       Boolean(configuredAdminEmail) && sessionUser.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
+    DatabaseStore.touchUserActivity(sessionUser.id).catch(() => {});
     return {
       auth: {
         project: defaultProject || {
@@ -52,6 +66,7 @@ export async function authenticateApiRequest(
           updated_at: new Date().toISOString(),
         },
         isAdmin: sessionUser.role === 'admin' || isConfiguredAdmin,
+        user: sessionUser,
       },
     };
   }

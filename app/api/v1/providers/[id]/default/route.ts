@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
+import { requireAdmin } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -11,11 +12,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
-  if (!auth.isAdmin) {
-    return applyCorsHeaders(
-      NextResponse.json({ success: false, error: 'Only admins can set the default provider' }, { status: 403 })
-    );
-  }
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const { id } = await params;

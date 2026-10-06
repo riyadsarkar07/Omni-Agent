@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { getAdminEmail } from '@/lib/config';
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 const updateProjectSchema = z.object({
   name: z.string().min(2).max(60).optional(),
@@ -19,6 +20,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   const { id } = await params;
   const project = await DatabaseStore.getProject(id);
@@ -40,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await DatabaseStore.logAudit({
       project_id: id,
-      user_email: getAdminEmail() || 'system',
+      user_email: actorEmail(auth) || getAdminEmail() || 'system',
       action: 'PROJECT_UPDATED',
       resource_type: 'project',
       resource_id: id,
@@ -59,6 +62,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   const { id } = await params;
   const project = await DatabaseStore.getProject(id);

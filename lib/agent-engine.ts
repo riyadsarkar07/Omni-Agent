@@ -10,6 +10,7 @@ export interface ChatEngineOptions {
   conversationId?: string;
   projectId: string;
   apiKeyId?: string;
+  userId?: string;
   overrideThinkingLevel?: 'HIGH' | 'LOW' | 'MINIMAL' | 'OFF';
   overrideModel?: string;
 }
@@ -42,7 +43,8 @@ export class AgentEngine {
       options.conversationId,
       projectId,
       agent.id,
-      message.slice(0, 40)
+      message.slice(0, 40),
+      options.userId
     );
 
     // Fetch existing messages if memory is enabled
@@ -362,7 +364,8 @@ export class AgentEngine {
       options.conversationId,
       projectId,
       agent.id,
-      message.slice(0, 40)
+      message.slice(0, 40),
+      options.userId
     );
 
     let historyMessages: ChatMessage[] = [];

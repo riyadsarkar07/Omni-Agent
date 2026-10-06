@@ -29,6 +29,20 @@ export async function POST(req: NextRequest) {
 
     const session = await DatabaseStore.loginUser(email, password);
 
+    try {
+      const projects = await DatabaseStore.listProjects();
+      await DatabaseStore.logAudit({
+        project_id: projects[0]?.id || 'proj_default_core',
+        user_email: session.user.email,
+        action: 'USER_LOGIN',
+        resource_type: 'session',
+        resource_id: session.user.id,
+        details: { role: session.user.role },
+      });
+    } catch {
+      //
+    }
+
     const res = NextResponse.json({
       message: 'Login successful',
       user: session.user,

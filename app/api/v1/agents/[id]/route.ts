@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 const updateAgentSchema = z.object({
   name: z.string().min(2).max(80).optional(),
@@ -36,6 +37,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!agent || (agent.project_id !== auth.project.id && !auth.isAdmin)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
+  if (!auth.isAdmin && !agent.is_published) {
+    return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
+  }
 
   return applyCorsHeaders(NextResponse.json({ agent }));
 }
@@ -44,6 +48,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   const { id } = await params;
   const existingAgent = await DatabaseStore.getAgent(id);
@@ -72,7 +78,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await DatabaseStore.logAudit({
       project_id: existingAgent.project_id,
-      user_email: 'api_user@omniagent.io',
+      user_email: actorEmail(auth),
       action: 'AGENT_UPDATED',
       resource_type: 'agent',
       resource_id: id,
@@ -91,6 +97,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   const { id } = await params;
   const existingAgent = await DatabaseStore.getAgent(id);
@@ -103,7 +111,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   await DatabaseStore.logAudit({
     project_id: existingAgent.project_id,
-    user_email: 'api_user@omniagent.io',
+    user_email: actorEmail(auth),
     action: 'AGENT_DELETED',
     resource_type: 'agent',
     resource_id: id,

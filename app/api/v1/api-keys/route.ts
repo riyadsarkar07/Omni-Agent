@@ -4,6 +4,7 @@ import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware'
 import { generateApiKey } from '@/lib/auth/api-key';
 import { DatabaseStore } from '@/lib/db/store';
 import { getAdminEmail } from '@/lib/config';
+import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
 
 const createKeySchema = z.object({
   name: z.string().min(2, 'Key name must be at least 2 characters').max(60),
@@ -20,6 +21,8 @@ export async function GET(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   const projectId = req.nextUrl.searchParams.get('projectId') || (auth.isAdmin ? undefined : auth.project.id);
   const keys = await DatabaseStore.listApiKeys(projectId);
@@ -45,6 +48,8 @@ export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const denied = requireAdmin(auth);
+  if (denied) return denied;
 
   try {
     const rawBody = await req.json();
@@ -77,7 +82,7 @@ export async function POST(req: NextRequest) {
 
     await DatabaseStore.logAudit({
       project_id: targetProjectId,
-      user_email: getAdminEmail() || 'system',
+      user_email: actorEmail(auth) || getAdminEmail() || 'system',
       action: 'API_KEY_CREATED',
       resource_type: 'api_key',
       resource_id: savedKey.id,
