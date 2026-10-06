@@ -1395,37 +1395,100 @@ export class DatabaseStore {
   }
 
   // --- AI PROVIDERS MANAGEMENT METHODS ---
+  private static providerToolName(id: string): string {
+    return `oa_provider_${id}`;
+  }
+
+  private static hydrateProvider(provider: AIProvider, includeSecret: boolean): AIProvider {
+    const mapped: AIProvider = {
+      ...provider,
+      type: provider.type || kindFromProtocol(provider.protocol),
+      hasApiKey: Boolean(provider.apiKey || provider.hasApiKey),
+      apiKey: includeSecret ? provider.apiKey : undefined,
+    };
+    return includeSecret ? mapped : toPublicProvider(mapped);
+  }
+
+  private static mergeProviderLists(includeSecret: boolean, ...groups: AIProvider[][]): AIProvider[] {
+    const byId = new Map<string, AIProvider>();
+    for (const group of groups) {
+      for (const provider of group) {
+        if (!provider?.id || byId.has(provider.id)) continue;
+        byId.set(provider.id, this.hydrateProvider(provider, includeSecret));
+      }
+    }
+    return Array.from(byId.values());
+  }
+
+  private static async listLegacyProviders(includeSecret = false): Promise<AIProvider[]> {
+    if (!supabase) return [];
+    try {
+      const { data, error } = await supabase
+        .from('agent_tools')
+        .select('*')
+        .eq('description', 'omniagent-provider-v1');
+      if (error || !data) return [];
+      return data
+        .map((row) => {
+          const payload = (row.parameters_schema && typeof row.parameters_schema === 'object'
+            ? row.parameters_schema
+            : {}) as Record<string, unknown>;
+          const id = String(payload.id || String(row.name || '').replace(/^oa_provider_/, ''));
+          if (!id) return null;
+          return mapRowToProvider({ ...payload, id }, includeSecret);
+        })
+        .filter((p): p is AIProvider => Boolean(p));
+    } catch {
+      return [];
+    }
+  }
+
+  private static async saveLegacyProvider(provider: AIProvider, encryptedKey: string): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+      const row = {
+        name: this.providerToolName(provider.id),
+        display_name: provider.name,
+        description: 'omniagent-provider-v1',
+        parameters_schema: toDbProviderRow(provider, encryptedKey),
+        is_system: false,
+      };
+      const { error } = await supabase.from('agent_tools').upsert(row, { onConflict: 'name' });
+      if (error) {
+        console.error('Legacy provider persist error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('Legacy provider persist error:', err);
+      return false;
+    }
+  }
+
+  private static async deleteLegacyProvider(id: string): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+      const { error } = await supabase.from('agent_tools').delete().eq('name', this.providerToolName(id));
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+
   static async listProviders(includeSecret = false): Promise<AIProvider[]> {
+    const fromTable: AIProvider[] = [];
     if (supabase) {
       try {
         const { data, error } = await supabase.from('ai_providers').select('*').order('created_at', { ascending: false });
         if (!error && data) {
-          const mapped: AIProvider[] = data.map((p) => mapRowToProvider(p, includeSecret));
-          const byId = new Map<string, AIProvider>(mapped.map((p) => [p.id, p]));
-          for (const mem of memoryStore.providers) {
-            if (!byId.has(mem.id)) {
-              byId.set(mem.id, {
-                ...mem,
-                type: mem.type || kindFromProtocol(mem.protocol),
-                hasApiKey: Boolean(mem.apiKey),
-                apiKey: includeSecret ? mem.apiKey : undefined,
-              });
-            }
-          }
-          const merged: AIProvider[] = Array.from(byId.values());
-          return includeSecret ? merged : merged.map(toPublicProvider);
+          fromTable.push(...data.map((p) => mapRowToProvider(p, includeSecret)));
         }
       } catch {
-        // Table may not exist yet, fallback to memory
+        // Table may not exist yet
       }
     }
-    const mapped = memoryStore.providers.map((p) => ({
-      ...p,
-      type: p.type || kindFromProtocol(p.protocol),
-      hasApiKey: Boolean(p.apiKey),
-      apiKey: includeSecret ? p.apiKey : undefined,
-    }));
-    return includeSecret ? mapped : mapped.map(toPublicProvider);
+    const fromLegacy = await this.listLegacyProviders(includeSecret);
+    return this.mergeProviderLists(includeSecret, fromTable, fromLegacy, memoryStore.providers);
   }
 
   static async getProvider(id: string, includeSecret = false): Promise<AIProvider | null> {
@@ -1440,15 +1503,11 @@ export class DatabaseStore {
         // Fallback
       }
     }
+    const legacy = (await this.listLegacyProviders(includeSecret)).find((p) => p.id === id);
+    if (legacy) return includeSecret ? legacy : toPublicProvider(legacy);
     const found = memoryStore.providers.find((p) => p.id === id);
     if (!found) return null;
-    const mapped: AIProvider = {
-      ...found,
-      type: found.type || kindFromProtocol(found.protocol),
-      hasApiKey: Boolean(found.apiKey),
-      apiKey: includeSecret ? found.apiKey : undefined,
-    };
-    return includeSecret ? mapped : toPublicProvider(mapped);
+    return this.hydrateProvider(found, includeSecret);
   }
 
   static async getDefaultProvider(includeSecret = false): Promise<AIProvider | null> {
@@ -1496,6 +1555,7 @@ export class DatabaseStore {
       await this.clearDefaultFlag(newProvider.id);
     }
 
+    let persisted: AIProvider | null = null;
     if (supabase) {
       try {
         const { data: inserted, error } = await supabase
@@ -1504,18 +1564,21 @@ export class DatabaseStore {
           .select()
           .single();
         if (!error && inserted) {
-          const mapped = mapRowToProvider(inserted, false);
-          const idx = memoryStore.providers.findIndex((p) => p.id === mapped.id);
-          if (idx !== -1) memoryStore.providers[idx] = { ...newProvider, ...mapped, apiKey: newProvider.apiKey };
-          else memoryStore.providers.unshift(newProvider);
-          return toPublicProvider(mapped);
-        }
-        if (error) {
-          console.error('Supabase createProvider error, falling back to memoryStore:', error.message);
+          persisted = toPublicProvider(mapRowToProvider(inserted, false));
+        } else if (error) {
+          console.error('Supabase createProvider error, using shared fallback store:', error.message);
         }
       } catch (err) {
-        console.error('Supabase createProvider error, falling back to memoryStore:', err);
+        console.error('Supabase createProvider error, using shared fallback store:', err);
       }
+    }
+
+    const legacySaved = await this.saveLegacyProvider(
+      newProvider,
+      encryptedKey || encryptProviderSecret(newProvider.apiKey || '')
+    );
+    if (!persisted && legacySaved) {
+      persisted = toPublicProvider(newProvider);
     }
 
     const existingIdx = memoryStore.providers.findIndex((p) => p.id === newProvider.id);
@@ -1524,7 +1587,11 @@ export class DatabaseStore {
     } else {
       memoryStore.providers.unshift(newProvider);
     }
-    return toPublicProvider(newProvider);
+
+    if (!persisted && isProduction()) {
+      throw new Error('Could not save provider to the shared database, so it would not appear on other devices.');
+    }
+    return persisted || toPublicProvider(newProvider);
   }
 
   static async updateProvider(id: string, updates: Partial<AIProvider>): Promise<AIProvider | null> {
@@ -1552,9 +1619,10 @@ export class DatabaseStore {
       await this.clearDefaultFlag(id);
     }
 
+    const encryptedKey = replaceKey ? encryptProviderSecret(incomingKey!) : encryptProviderSecret(nextKey || '');
     if (supabase) {
       try {
-        const patch = toDbProviderRow(merged, replaceKey ? encryptProviderSecret(incomingKey!) : '');
+        const patch = toDbProviderRow(merged, encryptedKey);
         if (!replaceKey) {
           delete (patch as { api_key?: string }).api_key;
         }
@@ -1567,12 +1635,15 @@ export class DatabaseStore {
 
         if (!error && updated) {
           if (memoryIdx !== -1) memoryStore.providers[memoryIdx] = merged;
+          await this.saveLegacyProvider(merged, encryptedKey);
           return toPublicProvider(mapRowToProvider(updated, false));
         }
       } catch {
         // Fallback
       }
     }
+
+    await this.saveLegacyProvider(merged, encryptedKey);
 
     if (memoryIdx !== -1) {
       memoryStore.providers[memoryIdx] = merged;
@@ -1608,22 +1679,23 @@ export class DatabaseStore {
       throw new Error('The native Gemini provider cannot be deleted');
     }
 
+    let deleted = false;
     if (supabase) {
       try {
         const { error } = await supabase.from('ai_providers').delete().eq('id', id);
-        if (!error) {
-          const idx = memoryStore.providers.findIndex((p) => p.id === id);
-          if (idx !== -1) memoryStore.providers.splice(idx, 1);
-          return true;
-        }
+        if (!error) deleted = true;
       } catch {
         // Fallback
       }
     }
+    const legacyDeleted = await this.deleteLegacyProvider(id);
+    deleted = deleted || legacyDeleted;
 
     const idx = memoryStore.providers.findIndex((p) => p.id === id);
-    if (idx === -1) return false;
-    memoryStore.providers.splice(idx, 1);
-    return true;
+    if (idx !== -1) {
+      memoryStore.providers.splice(idx, 1);
+      deleted = true;
+    }
+    return deleted;
   }
 }

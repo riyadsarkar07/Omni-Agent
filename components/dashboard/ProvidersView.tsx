@@ -117,7 +117,7 @@ export const ProvidersView: React.FC = () => {
     let ignore = false;
     async function load() {
       try {
-      const res = await apiFetch('/api/v1/providers');
+        const res = await apiFetch('/api/v1/providers');
         if (res.ok && !ignore) {
           const data = await res.json();
           setProviders(data.providers || []);
@@ -129,8 +129,17 @@ export const ProvidersView: React.FC = () => {
       }
     }
     load();
+    const onFocus = () => {
+      if (!ignore) fetchProviders();
+    };
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(() => {
+      if (!ignore) fetchProviders();
+    }, 12000);
     return () => {
       ignore = true;
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -407,7 +416,7 @@ export const ProvidersView: React.FC = () => {
             API Configuration
           </h2>
           <p className="text-xs text-zinc-400">
-            Add unlimited third-party APIs (OpenRouter, Groq, Together, local). Test, save, and route agents through them.
+            Add unlimited third-party APIs (OpenRouter, Groq, Together, local). Saved providers sync across phone and laptop.
           </p>
         </div>
         <button

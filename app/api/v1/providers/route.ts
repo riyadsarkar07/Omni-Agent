@@ -17,13 +17,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const providers = await DatabaseStore.listProviders();
-    const visible = auth.isAdmin
-      ? providers
-      : providers.filter((p) => p.scope !== 'personal' || p.ownerId === undefined || p.enabled);
     return applyCorsHeaders(
       NextResponse.json({
         success: true,
-        providers: visible,
+        providers,
         types: PROVIDER_TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label, protocol: t.protocol, placeholderUrl: t.placeholderUrl })),
       })
     );
@@ -54,7 +51,7 @@ export async function POST(req: NextRequest) {
     const option = getProviderTypeOption(type);
     const protocol = (body.protocol as ProviderProtocol) || protocolFromKind(option.id);
     const baseUrl = String(body.baseUrl || '').trim();
-    const scope = auth.isAdmin ? (body.scope || 'global') : 'personal';
+    const scope = 'global';
 
     if (protocol !== 'gemini' && baseUrl && !isValidHttpUrl(baseUrl)) {
       return applyCorsHeaders(
@@ -98,7 +95,7 @@ export async function POST(req: NextRequest) {
       capabilities: body.capabilities || option.defaultCapabilities,
       isDefault: Boolean(body.isDefault) && auth.isAdmin,
       scope,
-      ownerId: scope === 'personal' ? auth.project.id : undefined,
+      ownerId: undefined,
       metadata,
     });
 
