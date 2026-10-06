@@ -5,9 +5,10 @@ import { getProviderTypeOption, protocolFromKind, isValidHttpUrl } from '@/lib/p
 import { ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
 
-function assertManageAccess(auth: { isAdmin: boolean }, scope?: string): boolean {
-  if (scope === 'personal') return true;
-  return auth.isAdmin;
+function assertManageAccess(auth: { isAdmin: boolean }, provider?: { isSystem?: boolean; id?: string; protocol?: string }): boolean {
+  if (auth.isAdmin) return true;
+  if (provider?.isSystem && provider.protocol === 'gemini' && provider.id === 'gemini') return false;
+  return true;
 }
 
 export async function OPTIONS() {
@@ -44,9 +45,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!existing) {
       return applyCorsHeaders(NextResponse.json({ success: false, error: 'Provider not found' }, { status: 404 }));
     }
-    if (!assertManageAccess(auth, existing.scope)) {
+    if (!assertManageAccess(auth, existing)) {
       return applyCorsHeaders(
-        NextResponse.json({ success: false, error: 'Only admins can modify global providers' }, { status: 403 })
+        NextResponse.json({ success: false, error: 'This system provider cannot be modified' }, { status: 403 })
       );
     }
 
@@ -135,9 +136,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     if (!existing) {
       return applyCorsHeaders(NextResponse.json({ success: false, error: 'Provider not found' }, { status: 404 }));
     }
-    if (!assertManageAccess(auth, existing.scope)) {
+    if (!assertManageAccess(auth, existing)) {
       return applyCorsHeaders(
-        NextResponse.json({ success: false, error: 'Only admins can delete global providers' }, { status: 403 })
+        NextResponse.json({ success: false, error: 'This system provider cannot be deleted' }, { status: 403 })
       );
     }
 

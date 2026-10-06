@@ -365,8 +365,8 @@ export const ProvidersView: React.FC = () => {
     try {
       const res = await apiFetch(`/api/v1/providers/${provider.id}`, { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setProviders(providers.filter((p) => p.id !== provider.id));
+      if (res.ok && data.success !== false) {
+        setProviders((prev) => prev.filter((p) => p.id !== provider.id));
         showNotification(`Provider "${provider.name}" deleted.`, 'success');
       } else {
         showNotification(data.error || 'Failed to delete provider.', 'error');

@@ -43,6 +43,7 @@ interface MemoryStore {
   usageLogs: UsageLog[];
   auditLogs: AuditLog[];
   providers: AIProvider[];
+  deletedProviderIds: string[];
 }
 
 const DEMO_API_KEY_RAW = 'ua_live_demo_development_key_2026';
@@ -303,11 +304,13 @@ if (!globalForStore.memoryStore) {
         created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
         updated_at: new Date().toISOString()
       }
-    ]
+    ],
+    deletedProviderIds: [],
   };
 }
 
 const memoryStore = globalForStore.memoryStore!;
+if (!memoryStore.deletedProviderIds) memoryStore.deletedProviderIds = [];
 
 export const DEMO_PRESET_KEY = DEMO_API_KEY_RAW;
 
@@ -1399,6 +1402,71 @@ export class DatabaseStore {
     return `oa_provider_${id}`;
   }
 
+  private static deletedProviderToolName(id: string): string {
+    return `oa_provider_deleted_${id}`;
+  }
+
+  private static rememberDeletedProvider(id: string): void {
+    if (!memoryStore.deletedProviderIds.includes(id)) {
+      memoryStore.deletedProviderIds.push(id);
+    }
+    const idx = memoryStore.providers.findIndex((p) => p.id === id);
+    if (idx !== -1) memoryStore.providers.splice(idx, 1);
+  }
+
+  private static forgetDeletedProvider(id: string): void {
+    memoryStore.deletedProviderIds = memoryStore.deletedProviderIds.filter((item) => item !== id);
+  }
+
+  private static async listDeletedProviderIds(): Promise<Set<string>> {
+    const deleted = new Set(memoryStore.deletedProviderIds);
+    if (!supabase) return deleted;
+    try {
+      const { data, error } = await supabase
+        .from('agent_tools')
+        .select('name')
+        .eq('description', 'omniagent-provider-deleted-v1');
+      if (error || !data) return deleted;
+      for (const row of data) {
+        const name = String(row.name || '');
+        const id = name.replace(/^oa_provider_deleted_/, '');
+        if (id) deleted.add(id);
+      }
+    } catch {
+      // ignore
+    }
+    return deleted;
+  }
+
+  private static async markProviderDeleted(id: string): Promise<void> {
+    this.rememberDeletedProvider(id);
+    if (!supabase) return;
+    try {
+      await supabase.from('agent_tools').upsert(
+        {
+          name: this.deletedProviderToolName(id),
+          display_name: `Deleted provider ${id}`,
+          description: 'omniagent-provider-deleted-v1',
+          parameters_schema: { id, deleted_at: new Date().toISOString() },
+          is_system: false,
+        },
+        { onConflict: 'name' }
+      );
+    } catch {
+      // ignore
+    }
+  }
+
+  private static async clearProviderDeleted(id: string): Promise<void> {
+    this.forgetDeletedProvider(id);
+    if (!supabase) return;
+    try {
+      await supabase.from('agent_tools').delete().eq('name', this.deletedProviderToolName(id));
+    } catch {
+      // ignore
+    }
+  }
+
   private static hydrateProvider(provider: AIProvider, includeSecret: boolean): AIProvider {
     const mapped: AIProvider = {
       ...provider,
@@ -1488,10 +1556,15 @@ export class DatabaseStore {
       }
     }
     const fromLegacy = await this.listLegacyProviders(includeSecret);
-    return this.mergeProviderLists(includeSecret, fromTable, fromLegacy, memoryStore.providers);
+    const deletedIds = await this.listDeletedProviderIds();
+    return this.mergeProviderLists(includeSecret, fromTable, fromLegacy, memoryStore.providers).filter(
+      (provider) => !deletedIds.has(provider.id)
+    );
   }
 
   static async getProvider(id: string, includeSecret = false): Promise<AIProvider | null> {
+    const deletedIds = await this.listDeletedProviderIds();
+    if (deletedIds.has(id)) return null;
     if (supabase) {
       try {
         const { data, error } = await supabase.from('ai_providers').select('*').eq('id', id).maybeSingle();
@@ -1554,6 +1627,7 @@ export class DatabaseStore {
     if (newProvider.isDefault) {
       await this.clearDefaultFlag(newProvider.id);
     }
+    await this.clearProviderDeleted(newProvider.id);
 
     let persisted: AIProvider | null = null;
     if (supabase) {
@@ -1679,23 +1753,16 @@ export class DatabaseStore {
       throw new Error('The native Gemini provider cannot be deleted');
     }
 
-    let deleted = false;
     if (supabase) {
       try {
-        const { error } = await supabase.from('ai_providers').delete().eq('id', id);
-        if (!error) deleted = true;
+        await supabase.from('ai_providers').delete().eq('id', id);
       } catch {
-        // Fallback
+        // Fallback to shared tombstone
       }
     }
-    const legacyDeleted = await this.deleteLegacyProvider(id);
-    deleted = deleted || legacyDeleted;
-
-    const idx = memoryStore.providers.findIndex((p) => p.id === id);
-    if (idx !== -1) {
-      memoryStore.providers.splice(idx, 1);
-      deleted = true;
-    }
-    return deleted;
+    await this.deleteLegacyProvider(id);
+    this.rememberDeletedProvider(id);
+    await this.markProviderDeleted(id);
+    return true;
   }
 }
