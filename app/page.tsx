@@ -212,7 +212,13 @@ export default function DashboardPage() {
           isAdminMode={isAdminMode}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 scroll-smooth">
+        <main
+          className={`flex-1 min-h-0 min-w-0 scroll-smooth ${
+            currentTab === 'playground'
+              ? 'overflow-hidden p-0 sm:p-3 md:p-4 lg:p-6'
+              : 'overflow-y-auto p-4 md:p-6 lg:p-8'
+          }`}
+        >
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
@@ -223,7 +229,7 @@ export default function DashboardPage() {
               </div>
             </div>
           ) : (
-            <div className="animate-in fade-in duration-500">
+            <div className={currentTab === 'playground' ? 'h-full min-h-0 min-w-0 overflow-hidden' : 'animate-in fade-in duration-500'}>
               {isAdminMode ? (
                 <>
                   {currentTab === 'admin-overview' && <SystemOverviewView />}

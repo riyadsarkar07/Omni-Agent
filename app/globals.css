@@ -54,3 +54,9 @@ body {
 .glow-text {
   text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
 }
+
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}

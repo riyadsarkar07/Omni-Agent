@@ -1217,6 +1217,34 @@ export class DatabaseStore {
     return msg;
   }
 
+  static async updateConversation(id: string, patch: { title?: string }): Promise<Conversation | null> {
+    const title = typeof patch.title === 'string' ? patch.title.trim().slice(0, 120) : undefined;
+    if (!title) {
+      const current = await this.getConversation(id);
+      return current?.conversation || null;
+    }
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('conversations')
+          .update({ title, updated_at: new Date().toISOString() })
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+        if (!error && data) return data;
+      } catch (err) {
+        console.error('Supabase updateConversation error, falling back to memoryStore:', err);
+      }
+    }
+
+    const conv = memoryStore.conversations.find((c) => c.id === id);
+    if (!conv) return null;
+    conv.title = title;
+    conv.updated_at = new Date().toISOString();
+    return conv;
+  }
+
   static async deleteConversation(id: string): Promise<boolean> {
     if (supabase) {
       try {
