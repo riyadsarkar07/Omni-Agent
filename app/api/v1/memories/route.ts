@@ -41,3 +41,12 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const { auth, errorResponse } = await authenticateApiRequest(req);
+  if (errorResponse) return applyCorsHeaders(errorResponse);
+  const denied = requireSessionUser(auth);
+  if (denied) return denied;
+  const deleted = await DatabaseStore.clearUserMemories(auth!.user!.id);
+  return applyCorsHeaders(NextResponse.json({ success: true, deletedCount: deleted }));
+}

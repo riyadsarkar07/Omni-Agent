@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
-import { actorEmail, canExecuteAgent, canManageAgent, hasAdminPrivileges, requireSessionUser } from '@/lib/auth/rbac';
+import { actorEmail, canManageAgent, hasAdminPrivileges, requireSessionUser } from '@/lib/auth/rbac';
+import { userCanExecuteAgent } from '@/lib/auth/access';
 
 const updateAgentSchema = z.object({
   name: z.string().min(2).max(80).optional(),
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const agent = await DatabaseStore.getAgent(id);
 
-  if (!agent || !canExecuteAgent(auth, agent)) {
+  if (!agent || !(await userCanExecuteAgent(auth, agent))) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
 

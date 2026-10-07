@@ -13,8 +13,13 @@ import { GET as getProviders } from '../../app/api/v1/providers/route';
 import { GET as getApiKeys } from '../../app/api/v1/api-keys/route';
 import { GET as getAdminOverview } from '../../app/api/v1/admin/overview/route';
 import { POST as postMusic } from '../../app/api/creative/music/route';
-import { GET as getMemories, POST as postMemory } from '../../app/api/v1/memories/route';
+import { GET as getMemories, POST as postMemory, DELETE as deleteAllMemories } from '../../app/api/v1/memories/route';
 import { DELETE as deleteMemory } from '../../app/api/v1/memories/[id]/route';
+import { GET as getFiles, POST as postFile } from '../../app/api/v1/files/route';
+import { GET as getFileById, DELETE as deleteFile } from '../../app/api/v1/files/[id]/route';
+import { GET as getShares, POST as postShare } from '../../app/api/v1/shares/route';
+import { DELETE as deleteShare } from '../../app/api/v1/shares/[id]/route';
+import { DELETE as deleteConversation } from '../../app/api/v1/conversations/[id]/route';
 
 const ORIGINAL_ADMIN_SECRET = process.env.ADMIN_SECRET;
 const ORIGINAL_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
@@ -240,6 +245,127 @@ describe('production tenancy and API security', () => {
     steal.cookies.set('omniagent_session', other.token);
     const stolen = await deleteMemory(steal, { params: Promise.resolve({ id: memoryId }) });
     assert.equal(stolen.status, 404);
+  });
+
+  it('clears only the current user memories', async () => {
+    const owner = await DatabaseStore.registerUser(`mem-clear-${Date.now()}@example.com`, 'password123', 'Owner');
+    const other = await DatabaseStore.registerUser(`mem-keep-${Date.now()}@example.com`, 'password123', 'Other');
+    const ownerCreate = new NextRequest('http://localhost/api/v1/memories', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'owner note' }),
+    });
+    ownerCreate.cookies.set('omniagent_session', owner.token);
+    await postMemory(ownerCreate);
+    const otherCreate = new NextRequest('http://localhost/api/v1/memories', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'other note' }),
+    });
+    otherCreate.cookies.set('omniagent_session', other.token);
+    await postMemory(otherCreate);
+
+    const clearReq = new NextRequest('http://localhost/api/v1/memories', { method: 'DELETE' });
+    clearReq.cookies.set('omniagent_session', owner.token);
+    const cleared = await deleteAllMemories(clearReq);
+    assert.equal(cleared.status, 200);
+
+    const ownerList = await getMemories(requestWith('http://localhost/api/v1/memories', {}, { omniagent_session: owner.token }));
+    const otherList = await getMemories(requestWith('http://localhost/api/v1/memories', {}, { omniagent_session: other.token }));
+    const ownerBody = await ownerList.json();
+    const otherBody = await otherList.json();
+    assert.equal(ownerBody.total, 0);
+    assert.equal(otherBody.total, 1);
+  });
+
+  it('stores files privately and blocks IDOR download/delete', async () => {
+    const owner = await DatabaseStore.registerUser(`file-owner-${Date.now()}@example.com`, 'password123', 'Owner');
+    const other = await DatabaseStore.registerUser(`file-other-${Date.now()}@example.com`, 'password123', 'Other');
+    const form = new FormData();
+    form.set('file', new File(['hello private file'], 'notes.txt', { type: 'text/plain' }));
+    const uploadReq = new NextRequest('http://localhost/api/v1/files', { method: 'POST', body: form });
+    uploadReq.cookies.set('omniagent_session', owner.token);
+    const uploaded = await postFile(uploadReq);
+    assert.equal(uploaded.status, 201);
+    const uploadedBody = await uploaded.json();
+    assert.equal(uploadedBody.file.original_name, 'notes.txt');
+    assert.equal(uploadedBody.file.storage_path, undefined);
+    assert.equal(uploadedBody.analysisEnabled, false);
+    const fileId = uploadedBody.file.id;
+
+    const otherList = await getFiles(requestWith('http://localhost/api/v1/files', {}, { omniagent_session: other.token }));
+    const otherListBody = await otherList.json();
+    assert.equal((otherListBody.files || []).some((f: { id: string }) => f.id === fileId), false);
+
+    const stolenGet = await getFileById(
+      requestWith(`http://localhost/api/v1/files/${fileId}`, {}, { omniagent_session: other.token }),
+      { params: Promise.resolve({ id: fileId }) }
+    );
+    assert.equal(stolenGet.status, 404);
+
+    const stealDelete = new NextRequest(`http://localhost/api/v1/files/${fileId}`, { method: 'DELETE' });
+    stealDelete.cookies.set('omniagent_session', other.token);
+    const stolenDelete = await deleteFile(stealDelete, { params: Promise.resolve({ id: fileId }) });
+    assert.equal(stolenDelete.status, 404);
+
+    const ownGet = await getFileById(
+      requestWith(`http://localhost/api/v1/files/${fileId}`, {}, { omniagent_session: owner.token }),
+      { params: Promise.resolve({ id: fileId }) }
+    );
+    assert.equal(ownGet.status, 200);
+    assert.equal(await ownGet.text(), 'hello private file');
+  });
+
+  it('shares conversations as read-only without exposing private ownership', async () => {
+    const owner = await DatabaseStore.registerUser(`share-owner-${Date.now()}@example.com`, 'password123', 'Owner');
+    const other = await DatabaseStore.registerUser(`share-other-${Date.now()}@example.com`, 'password123', 'Other');
+    const stranger = await DatabaseStore.registerUser(`share-stranger-${Date.now()}@example.com`, 'password123', 'Stranger');
+    const conversation = await DatabaseStore.getOrCreateConversation(
+      undefined,
+      'proj_default_core',
+      'agent_general_assistant',
+      'Private owner chat',
+      owner.user.id
+    );
+
+    const createShareReq = new NextRequest('http://localhost/api/v1/shares', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ resourceType: 'conversation', resourceId: conversation.id, email: other.user.email }),
+    });
+    createShareReq.cookies.set('omniagent_session', owner.token);
+    const shared = await postShare(createShareReq);
+    assert.equal(shared.status, 201);
+    const shareBody = await shared.json();
+    const shareId = shareBody.share.id;
+
+    const otherGet = await getConversation(
+      requestWith(`http://localhost/api/v1/conversations/${conversation.id}`, {}, { omniagent_session: other.token }),
+      { params: Promise.resolve({ id: conversation.id }) }
+    );
+    assert.equal(otherGet.status, 200);
+
+    const strangerGet = await getConversation(
+      requestWith(`http://localhost/api/v1/conversations/${conversation.id}`, {}, { omniagent_session: stranger.token }),
+      { params: Promise.resolve({ id: conversation.id }) }
+    );
+    assert.equal(strangerGet.status, 404);
+
+    const otherDelete = new NextRequest(`http://localhost/api/v1/conversations/${conversation.id}`, { method: 'DELETE' });
+    otherDelete.cookies.set('omniagent_session', other.token);
+    const deleted = await deleteConversation(otherDelete, { params: Promise.resolve({ id: conversation.id }) });
+    assert.equal(deleted.status, 404);
+
+    const otherRevoke = new NextRequest(`http://localhost/api/v1/shares/${shareId}`, { method: 'DELETE' });
+    otherRevoke.cookies.set('omniagent_session', other.token);
+    const stolenRevoke = await deleteShare(otherRevoke, { params: Promise.resolve({ id: shareId }) });
+    assert.equal(stolenRevoke.status, 404);
+
+    const ownerShares = await getShares(
+      requestWith(`http://localhost/api/v1/shares?resourceType=conversation&resourceId=${conversation.id}`, {}, { omniagent_session: owner.token })
+    );
+    const ownerShareBody = await ownerShares.json();
+    assert.equal(ownerShareBody.total, 1);
   });
 
   it('does not let x-admin-secret authenticate chat or admin overview', async () => {

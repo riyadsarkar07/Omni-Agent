@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { AgentEngine } from '@/lib/agent-engine';
-import { canAccessConversation, canExecuteAgent, hasAdminPrivileges } from '@/lib/auth/rbac';
+import { hasAdminPrivileges } from '@/lib/auth/rbac';
+import { userCanExecuteAgent, userCanReadConversation } from '@/lib/auth/access';
 import { enforceUserQuota } from '@/lib/auth/quota';
 
 const chatSchema = z.object({
@@ -44,20 +45,18 @@ export async function POST(req: NextRequest) {
 
     const { message, agentId, conversationId, overrideModel, overrideProviderId, thinkingLevel } = parseResult.data;
 
-    let conversationUserId = auth.user?.id;
     if (conversationId) {
       const existing = await DatabaseStore.getConversation(conversationId);
-      if (!existing || !canAccessConversation(auth, existing.conversation)) {
+      if (!existing || !(await userCanReadConversation(auth, existing.conversation))) {
         return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
       }
-      conversationUserId = DatabaseStore.conversationOwnerId(existing.conversation) || auth.user?.id;
     }
 
     // Resolve agent: if agentId provided, verify it belongs to project and is executable
     let targetAgent = null;
     if (agentId) {
       targetAgent = await DatabaseStore.getAgent(agentId);
-      if (!targetAgent || !canExecuteAgent(auth, targetAgent)) {
+      if (!targetAgent || !(await userCanExecuteAgent(auth, targetAgent))) {
         return applyCorsHeaders(
           NextResponse.json({ error: 'Agent not found' }, { status: 404 })
         );
@@ -92,7 +91,7 @@ export async function POST(req: NextRequest) {
       conversationId,
       projectId: auth.project.id,
       apiKeyId: auth.apiKey?.id,
-      userId: conversationUserId,
+      userId: auth.user?.id,
       overrideModel,
       overrideThinkingLevel: thinkingLevel,
     });

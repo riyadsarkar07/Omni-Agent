@@ -34,6 +34,8 @@ export class AgentEngine {
   private static async resolveSystemInstruction(agent: Agent, userId?: string): Promise<string> {
     const base = agent.system_instructions || '';
     if (!userId || agent.memory_enabled === false) return base;
+    const owner = await DatabaseStore.getUserById(userId);
+    if (owner?.preferences?.memory_enabled === false) return base;
     const memories = await DatabaseStore.listUserMemories(userId);
     if (!memories.length) return base;
     const notes = memories

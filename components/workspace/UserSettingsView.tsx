@@ -114,6 +114,12 @@ export const UserSettingsView: React.FC<UserSettingsViewProps> = ({
     if (res.ok) setMemories((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const handleClearMemories = async () => {
+    if (!window.confirm('Clear all of your memories? This cannot be undone.')) return;
+    const res = await apiFetch('/api/v1/memories', { method: 'DELETE' });
+    if (res.ok) setMemories([]);
+  };
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -122,6 +128,18 @@ export const UserSettingsView: React.FC<UserSettingsViewProps> = ({
     const res = await apiFetch('/api/v1/files', { method: 'POST', body: form });
     if (res.ok) await loadExtras();
     e.target.value = '';
+  };
+
+  const handleDownloadFile = async (file: UserFile) => {
+    const res = await apiFetch(`/api/v1/files/${file.id}`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.original_name;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleDeleteFile = async (id: string) => {
@@ -207,7 +225,14 @@ export const UserSettingsView: React.FC<UserSettingsViewProps> = ({
       </form>
 
       <div className="glass-card rounded-2xl border border-white/5 p-5 space-y-3">
-        <h3 className="text-sm font-bold text-white">Memories</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-white">Memories</h3>
+          {memories.length > 0 && (
+            <button type="button" onClick={handleClearMemories} className="text-[11px] text-rose-300 hover:text-rose-200 cursor-pointer">
+              Clear all
+            </button>
+          )}
+        </div>
         <form onSubmit={handleAddMemory} className="flex gap-2">
           <input
             value={memoryDraft}
@@ -239,7 +264,10 @@ export const UserSettingsView: React.FC<UserSettingsViewProps> = ({
         <div className="space-y-2">
           {files.map((f) => (
             <div key={f.id} className="flex items-center gap-2 text-xs text-zinc-300">
-              <div className="flex-1 truncate">{f.original_name}</div>
+              <button type="button" onClick={() => handleDownloadFile(f)} className="flex-1 truncate text-left hover:text-cyan-300 cursor-pointer">
+                {f.original_name}
+              </button>
+              <span className="text-[10px] text-zinc-500">{Math.max(1, Math.round(f.size_bytes / 1024))} KB</span>
               <button type="button" onClick={() => handleDeleteFile(f.id)} className="text-zinc-500 hover:text-rose-400 cursor-pointer">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>

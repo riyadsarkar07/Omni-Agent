@@ -46,6 +46,20 @@ export interface UserFile {
   created_at: string;
 }
 
+export type ShareResourceType = 'conversation' | 'agent';
+export type SharePermission = 'read';
+
+export interface ResourceShare {
+  id: string;
+  resource_type: ShareResourceType;
+  resource_id: string;
+  owner_id: string;
+  shared_with_user_id: string;
+  shared_with_email?: string;
+  permission: SharePermission;
+  created_at: string;
+}
+
 export interface AuthSession {
   user: User;
   token: string;

@@ -3,10 +3,11 @@
 import React, { useMemo, useState } from 'react';
 import { Agent } from '@/lib/types';
 import { apiFetch } from '@/lib/auth/session-client';
-import { Bot, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Bot, Pencil, Plus, Share2, Sparkles, Trash2 } from 'lucide-react';
 
 interface UserAgentsViewProps {
   agents: Agent[];
+  currentUserId: string;
   onOpenChat: (agentId?: string) => void;
   onChanged?: () => void;
 }
@@ -18,14 +19,21 @@ const emptyForm = {
   system_instructions: 'You are a helpful personal assistant.',
 };
 
-export const UserAgentsView: React.FC<UserAgentsViewProps> = ({ agents, onOpenChat, onChanged }) => {
+export const UserAgentsView: React.FC<UserAgentsViewProps> = ({ agents, currentUserId, onOpenChat, onChanged }) => {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const myAgents = useMemo(() => agents.filter((a) => a.scope === 'user'), [agents]);
+  const myAgents = useMemo(
+    () => agents.filter((a) => a.scope === 'user' && a.owner_id === currentUserId),
+    [agents, currentUserId]
+  );
+  const sharedWithMe = useMemo(
+    () => agents.filter((a) => a.owner_id && a.owner_id !== currentUserId && a.scope === 'user'),
+    [agents, currentUserId]
+  );
   const published = useMemo(() => agents.filter((a) => a.scope !== 'user' && a.is_published), [agents]);
 
   const startCreate = () => {
@@ -87,6 +95,24 @@ export const UserAgentsView: React.FC<UserAgentsViewProps> = ({ agents, onOpenCh
     if (res.ok) onChanged?.();
   };
 
+  const handleShare = async (agent: Agent) => {
+    const email = window.prompt('Share this agent with an existing user email');
+    if (!email || !email.trim()) return;
+    const res = await apiFetch('/api/v1/shares', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        resourceType: 'agent',
+        resourceId: agent.id,
+        email: email.trim(),
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      window.alert(data.error || 'Share failed');
+    }
+  };
+
   const renderCard = (agent: Agent, mine: boolean) => (
     <div key={agent.id} className="glass-card rounded-2xl border border-white/5 p-5 space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -101,6 +127,9 @@ export const UserAgentsView: React.FC<UserAgentsViewProps> = ({ agents, onOpenCh
         </div>
         {mine && (
           <div className="flex items-center gap-1">
+            <button type="button" onClick={() => handleShare(agent)} className="p-1.5 text-zinc-500 hover:text-white cursor-pointer">
+              <Share2 className="w-3.5 h-3.5" />
+            </button>
             <button type="button" onClick={() => startEdit(agent)} className="p-1.5 text-zinc-500 hover:text-white cursor-pointer">
               <Pencil className="w-3.5 h-3.5" />
             </button>
@@ -186,6 +215,13 @@ export const UserAgentsView: React.FC<UserAgentsViewProps> = ({ agents, onOpenCh
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{myAgents.map((a) => renderCard(a, true))}</div>
         )}
       </div>
+
+      {sharedWithMe.length > 0 && (
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-3">Shared with me</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{sharedWithMe.map((a) => renderCard(a, false))}</div>
+        </div>
+      )}
 
       <div>
         <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-3">Published</div>

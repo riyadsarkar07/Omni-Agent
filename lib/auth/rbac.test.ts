@@ -6,6 +6,7 @@ import {
   canManageAgent,
   hasAdminPrivileges,
   isAdminUser,
+  isConversationOwner,
   requireAdmin,
   requireSessionUser,
 } from './rbac';
@@ -138,5 +139,16 @@ describe('conversation and agent access', () => {
     assert.equal(canExecuteAgent({ user: memberUser }, owned), true);
     assert.equal(canExecuteAgent({ user: adminUser }, owned), false);
     assert.equal(canExecuteAgent({ isAdmin: true, user: adminUser }, owned), true);
+  });
+
+  it('does not treat sharees as conversation owners', () => {
+    assert.equal(
+      isConversationOwner({ user: memberUser }, { metadata: { owner_id: memberUser.id } }),
+      true
+    );
+    assert.equal(
+      isConversationOwner({ user: adminUser }, { metadata: { owner_id: memberUser.id } }),
+      false
+    );
   });
 });

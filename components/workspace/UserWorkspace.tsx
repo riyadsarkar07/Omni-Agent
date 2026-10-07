@@ -22,6 +22,7 @@ import {
   Sparkles,
   X,
   Pencil,
+  Share2,
   Trash2,
 } from 'lucide-react';
 
@@ -169,6 +170,27 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
     }
   };
 
+  const isOwnedConversation = (conversation: Conversation) =>
+    (conversation.metadata?.owner_id as string | undefined) === currentUser.id;
+
+  const handleShare = async (conversation: Conversation) => {
+    const email = window.prompt('Share this conversation with an existing user email');
+    if (!email || !email.trim()) return;
+    const res = await apiFetch('/api/v1/shares', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        resourceType: 'conversation',
+        resourceId: conversation.id,
+        email: email.trim(),
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      window.alert(data.error || 'Share failed');
+    }
+  };
+
   const navItems: Array<{ id: WorkspaceTab; label: string; icon: typeof Bot }> = [
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'agents', label: 'My Agents', icon: Bot },
@@ -237,12 +259,19 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
                     >
                       {c.title}
                     </button>
-                    <button type="button" onClick={() => handleRename(c)} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-white cursor-pointer">
-                      <Pencil className="w-3 h-3" />
-                    </button>
-                    <button type="button" onClick={() => handleDelete(c)} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-rose-400 cursor-pointer">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    {isOwnedConversation(c) && (
+                      <>
+                        <button type="button" onClick={() => handleShare(c)} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-white cursor-pointer">
+                          <Share2 className="w-3 h-3" />
+                        </button>
+                        <button type="button" onClick={() => handleRename(c)} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-white cursor-pointer">
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button type="button" onClick={() => handleDelete(c)} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-rose-400 cursor-pointer">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -337,6 +366,7 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
             <div className="h-full overflow-y-auto">
               <UserAgentsView
                 agents={agents}
+                currentUserId={currentUser.id}
                 onOpenChat={handleOpenAgent}
                 onChanged={loadWorkspace}
               />

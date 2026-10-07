@@ -85,6 +85,14 @@ export function canAccessConversation(
   return Boolean(auth.project?.id) && conversation.project_id === auth.project!.id && !ownerId;
 }
 
+export function isConversationOwner(
+  auth: { user?: User | null },
+  conversation: { metadata?: Record<string, unknown> }
+): boolean {
+  const ownerId = conversationOwnerId(conversation.metadata);
+  return Boolean(auth.user?.id && ownerId === auth.user.id);
+}
+
 export function canExecuteAgent(
   auth: { isAdmin?: boolean; user?: User | null; project?: { id: string } },
   agent: { is_published: boolean; project_id?: string; owner_id?: string | null; scope?: string }

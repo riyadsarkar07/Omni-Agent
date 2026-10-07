@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
-import { canAccessConversation } from '@/lib/auth/rbac';
+import { userCanMutateConversation, userCanReadConversation } from '@/lib/auth/access';
 import { z } from 'zod';
 
 const renameSchema = z.object({
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const data = await DatabaseStore.getConversation(id);
 
-  if (!data || !canAccessConversation(auth, data.conversation)) {
+  if (!data || !(await userCanReadConversation(auth, data.conversation))) {
     return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
   }
 
@@ -40,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const data = await DatabaseStore.getConversation(id);
 
-  if (!data || !canAccessConversation(auth, data.conversation)) {
+  if (!data || !(await userCanMutateConversation(auth, data.conversation))) {
     return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
   }
 
@@ -69,7 +69,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const data = await DatabaseStore.getConversation(id);
 
-  if (!data || !canAccessConversation(auth, data.conversation)) {
+  if (!data || !(await userCanMutateConversation(auth, data.conversation))) {
     return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
   }
 

@@ -1,4 +1,4 @@
-import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview, UserPreferences, UserMemory, UserFile } from '../types';
+import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview, UserPreferences, UserMemory, UserFile, ResourceShare, ShareResourceType, SharePermission } from '../types';
 import { AIProvider } from '../providers/types';
 import { hashApiKey } from '../auth/api-key';
 import { getAdminEmail, getAdminPassword, isProduction } from '../config';
@@ -44,6 +44,9 @@ interface MemoryStore {
   providers: AIProvider[];
   deletedProviderIds: string[];
   platformSettings: { default_model: string | null; admin_contact_email: string | null; updated_at: string; updated_by: string | null };
+  memories: UserMemory[];
+  files: UserFile[];
+  shares: ResourceShare[];
 }
 
 const DEMO_API_KEY_RAW = 'ua_live_demo_development_key_2026';
@@ -319,6 +322,9 @@ if (!globalForStore.memoryStore) {
       updated_at: new Date().toISOString(),
       updated_by: null,
     },
+    memories: [],
+    files: [],
+    shares: [],
   };
 }
 
@@ -333,6 +339,9 @@ if (!memoryStore.platformSettings) {
     updated_by: null,
   };
 }
+if (!memoryStore.memories) memoryStore.memories = [];
+if (!memoryStore.files) memoryStore.files = [];
+if (!memoryStore.shares) memoryStore.shares = [];
 
 export const DEMO_PRESET_KEY = DEMO_API_KEY_RAW;
 
@@ -827,6 +836,23 @@ export class DatabaseStore {
       }
     }
     const user = memoryStore.users.find((u) => u.id === id);
+    return user ? this.toPublicUser(user) : null;
+  }
+
+  static async getUserByEmail(email: string): Promise<User | null> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return null;
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').eq('email', normalized).maybeSingle();
+        if (!error && data) {
+          return this.mapProfileRow(data as Record<string, unknown>);
+        }
+      } catch (err) {
+        console.error('Supabase getUserByEmail error, falling back to memoryStore:', err);
+      }
+    }
+    const user = memoryStore.users.find((u) => u.email.toLowerCase() === normalized);
     return user ? this.toPublicUser(user) : null;
   }
 
@@ -1350,8 +1376,12 @@ export class DatabaseStore {
   static async listVisibleAgents(userId?: string, isAdmin = false, projectId?: string): Promise<Agent[]> {
     const agents = await this.listAgents(projectId);
     if (isAdmin) return agents;
+    const sharedIds = userId
+      ? new Set((await this.listSharesForUser(userId, 'agent')).map((s) => s.resource_id))
+      : new Set<string>();
     return agents.filter((agent) => {
       if (agent.owner_id && agent.owner_id === userId) return true;
+      if (sharedIds.has(agent.id)) return true;
       if (agent.scope === 'user') return false;
       return agent.is_published;
     });
@@ -1400,7 +1430,7 @@ export class DatabaseStore {
         console.error('Supabase listUserMemories error, falling back to memoryStore:', err);
       }
     }
-    return ((memoryStore as MemoryStore & { memories?: UserMemory[] }).memories || []).filter((m) => m.user_id === userId);
+    return memoryStore.memories.filter((m) => m.user_id === userId);
   }
 
   static async createUserMemory(userId: string, content: string): Promise<UserMemory> {
@@ -1425,9 +1455,7 @@ export class DatabaseStore {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    const store = memoryStore as MemoryStore & { memories?: UserMemory[] };
-    store.memories = store.memories || [];
-    store.memories.unshift(memory);
+    memoryStore.memories.unshift(memory);
     return memory;
   }
 
@@ -1446,30 +1474,52 @@ export class DatabaseStore {
         console.error('Supabase deleteUserMemory error, falling back to memoryStore:', err);
       }
     }
-    const store = memoryStore as MemoryStore & { memories?: UserMemory[] };
-    const before = store.memories?.length || 0;
-    store.memories = (store.memories || []).filter((m) => !(m.id === memoryId && m.user_id === userId));
-    return (store.memories.length || 0) < before;
+    const before = memoryStore.memories.length;
+    memoryStore.memories = memoryStore.memories.filter((m) => !(m.id === memoryId && m.user_id === userId));
+    return memoryStore.memories.length < before;
   }
 
-  static async createUserFile(file: Omit<UserFile, 'id' | 'created_at'>): Promise<UserFile> {
+  static async clearUserMemories(userId: string): Promise<number> {
     const admin = db();
     if (admin) {
       try {
-        const { data, error } = await admin.from('user_files').insert(file).select().single();
+        const { data, error } = await admin.from('user_memories').delete().eq('user_id', userId).select('id');
+        if (!error) return data?.length || 0;
+      } catch (err) {
+        console.error('Supabase clearUserMemories error, falling back to memoryStore:', err);
+      }
+    }
+    const remaining = memoryStore.memories.filter((m) => m.user_id !== userId);
+    const deleted = memoryStore.memories.length - remaining.length;
+    memoryStore.memories = remaining;
+    return deleted;
+  }
+
+  static async createUserFile(file: Omit<UserFile, 'id' | 'created_at'> & { id?: string }): Promise<UserFile> {
+    const id = file.id || `file_${crypto.randomBytes(6).toString('hex')}`;
+    const payload = {
+      id,
+      user_id: file.user_id,
+      conversation_id: file.conversation_id || null,
+      original_name: file.original_name,
+      mime_type: file.mime_type,
+      size_bytes: file.size_bytes,
+      storage_path: file.storage_path || '',
+    };
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin.from('user_files').insert(payload).select().single();
         if (!error && data) return data as UserFile;
       } catch (err) {
         console.error('Supabase createUserFile error, falling back to memoryStore:', err);
       }
     }
     const created: UserFile = {
-      ...file,
-      id: `file_${crypto.randomBytes(6).toString('hex')}`,
+      ...payload,
       created_at: new Date().toISOString(),
     };
-    const store = memoryStore as MemoryStore & { files?: UserFile[] };
-    store.files = store.files || [];
-    store.files.unshift(created);
+    memoryStore.files.unshift(created);
     return created;
   }
 
@@ -1487,23 +1537,38 @@ export class DatabaseStore {
         console.error('Supabase listUserFiles error, falling back to memoryStore:', err);
       }
     }
-    return ((memoryStore as MemoryStore & { files?: UserFile[] }).files || []).filter((f) => f.user_id === userId);
+    return memoryStore.files
+      .filter((f) => f.user_id === userId)
+      .map((f) => ({
+        id: f.id,
+        user_id: f.user_id,
+        conversation_id: f.conversation_id,
+        original_name: f.original_name,
+        mime_type: f.mime_type,
+        size_bytes: f.size_bytes,
+        created_at: f.created_at,
+      }));
   }
 
-  static async getUserFile(id: string): Promise<(UserFile & { storage_path?: string }) | null> {
+  static async getUserFile(id: string, userId?: string): Promise<(UserFile & { storage_path?: string }) | null> {
     const admin = db();
     if (admin) {
       try {
-        const { data, error } = await admin.from('user_files').select('*').eq('id', id).maybeSingle();
+        let query = admin.from('user_files').select('*').eq('id', id);
+        if (userId) query = query.eq('user_id', userId);
+        const { data, error } = await query.maybeSingle();
         if (!error && data) return data as UserFile & { storage_path?: string };
       } catch {
         //
       }
     }
-    return ((memoryStore as MemoryStore & { files?: UserFile[] }).files || []).find((f) => f.id === id) || null;
+    const found = memoryStore.files.find((f) => f.id === id && (!userId || f.user_id === userId));
+    return found || null;
   }
 
-  static async deleteUserFile(userId: string, fileId: string): Promise<boolean> {
+  static async deleteUserFile(userId: string, fileId: string): Promise<UserFile | null> {
+    const existing = await this.getUserFile(fileId, userId);
+    if (!existing) return null;
     const admin = db();
     if (admin) {
       try {
@@ -1512,16 +1577,143 @@ export class DatabaseStore {
           .delete()
           .eq('id', fileId)
           .eq('user_id', userId)
-          .select('id');
-        if (!error && data && data.length > 0) return true;
+          .select('*');
+        if (!error && data && data.length > 0) return data[0] as UserFile;
       } catch {
         //
       }
     }
-    const store = memoryStore as MemoryStore & { files?: UserFile[] };
-    const before = store.files?.length || 0;
-    store.files = (store.files || []).filter((f) => !(f.id === fileId && f.user_id === userId));
-    return (store.files.length || 0) < before;
+    const before = memoryStore.files.length;
+    memoryStore.files = memoryStore.files.filter((f) => !(f.id === fileId && f.user_id === userId));
+    return memoryStore.files.length < before ? existing : null;
+  }
+
+  static async listSharesForOwner(ownerId: string, resourceType?: ShareResourceType, resourceId?: string): Promise<ResourceShare[]> {
+    const admin = db();
+    if (admin) {
+      try {
+        let query = admin.from('resource_shares').select('*').eq('owner_id', ownerId);
+        if (resourceType) query = query.eq('resource_type', resourceType);
+        if (resourceId) query = query.eq('resource_id', resourceId);
+        const { data, error } = await query.order('created_at', { ascending: false });
+        if (!error && data) return data as ResourceShare[];
+      } catch (err) {
+        console.error('Supabase listSharesForOwner error, falling back to memoryStore:', err);
+      }
+    }
+    return memoryStore.shares.filter(
+      (s) =>
+        s.owner_id === ownerId &&
+        (!resourceType || s.resource_type === resourceType) &&
+        (!resourceId || s.resource_id === resourceId)
+    );
+  }
+
+  static async listSharesForUser(userId: string, resourceType?: ShareResourceType): Promise<ResourceShare[]> {
+    const admin = db();
+    if (admin) {
+      try {
+        let query = admin.from('resource_shares').select('*').eq('shared_with_user_id', userId);
+        if (resourceType) query = query.eq('resource_type', resourceType);
+        const { data, error } = await query.order('created_at', { ascending: false });
+        if (!error && data) return data as ResourceShare[];
+      } catch (err) {
+        console.error('Supabase listSharesForUser error, falling back to memoryStore:', err);
+      }
+    }
+    return memoryStore.shares.filter(
+      (s) => s.shared_with_user_id === userId && (!resourceType || s.resource_type === resourceType)
+    );
+  }
+
+  static async isSharedWith(userId: string, resourceType: ShareResourceType, resourceId: string): Promise<boolean> {
+    if (!userId) return false;
+    const share = await this.findShare(resourceType, resourceId, userId);
+    return Boolean(share);
+  }
+
+  static async findShare(resourceType: ShareResourceType, resourceId: string, userId: string): Promise<ResourceShare | null> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('resource_shares')
+          .select('*')
+          .eq('resource_type', resourceType)
+          .eq('resource_id', resourceId)
+          .eq('shared_with_user_id', userId)
+          .maybeSingle();
+        if (!error && data) return data as ResourceShare;
+      } catch {
+        //
+      }
+    }
+    return (
+      memoryStore.shares.find(
+        (s) => s.resource_type === resourceType && s.resource_id === resourceId && s.shared_with_user_id === userId
+      ) || null
+    );
+  }
+
+  static async createShare(input: {
+    resource_type: ShareResourceType;
+    resource_id: string;
+    owner_id: string;
+    shared_with_user_id: string;
+    shared_with_email?: string;
+    permission?: SharePermission;
+  }): Promise<ResourceShare> {
+    const existing = await this.findShare(input.resource_type, input.resource_id, input.shared_with_user_id);
+    if (existing) return existing;
+    const payload = {
+      resource_type: input.resource_type,
+      resource_id: input.resource_id,
+      owner_id: input.owner_id,
+      shared_with_user_id: input.shared_with_user_id,
+      shared_with_email: input.shared_with_email || null,
+      permission: input.permission || 'read',
+    };
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin.from('resource_shares').insert(payload).select().single();
+        if (!error && data) return data as ResourceShare;
+      } catch (err) {
+        console.error('Supabase createShare error, falling back to memoryStore:', err);
+      }
+    }
+    const created: ResourceShare = {
+      id: `share_${crypto.randomBytes(6).toString('hex')}`,
+      resource_type: input.resource_type,
+      resource_id: input.resource_id,
+      owner_id: input.owner_id,
+      shared_with_user_id: input.shared_with_user_id,
+      shared_with_email: input.shared_with_email,
+      permission: input.permission || 'read',
+      created_at: new Date().toISOString(),
+    };
+    memoryStore.shares.unshift(created);
+    return created;
+  }
+
+  static async deleteShare(ownerId: string, shareId: string): Promise<boolean> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('resource_shares')
+          .delete()
+          .eq('id', shareId)
+          .eq('owner_id', ownerId)
+          .select('id');
+        if (!error && data && data.length > 0) return true;
+      } catch (err) {
+        console.error('Supabase deleteShare error, falling back to memoryStore:', err);
+      }
+    }
+    const before = memoryStore.shares.length;
+    memoryStore.shares = memoryStore.shares.filter((s) => !(s.id === shareId && s.owner_id === ownerId));
+    return memoryStore.shares.length < before;
   }
 
   // API Keys
@@ -1719,6 +1911,8 @@ export class DatabaseStore {
 
   static async listUserConversations(userId: string, projectId?: string): Promise<Conversation[]> {
     if (!userId) return [];
+    const shared = await this.listSharesForUser(userId, 'conversation');
+    const sharedIds = shared.map((s) => s.resource_id);
     if (supabase) {
       try {
         let query = supabase.from('conversations').select('*').contains('metadata', { owner_id: userId });
@@ -1726,15 +1920,25 @@ export class DatabaseStore {
           query = query.eq('project_id', projectId);
         }
         const { data, error } = await query.order('updated_at', { ascending: false });
+        let owned: Conversation[] = [];
         if (!error && data) {
-          return data.map((c) => ({ ...c, message_count: 0 }));
+          owned = data.map((c) => ({ ...c, message_count: 0 }));
         }
+        const extra: Conversation[] = [];
+        for (const id of sharedIds) {
+          if (owned.some((c) => c.id === id)) continue;
+          const row = await this.getConversation(id);
+          if (row) extra.push({ ...row.conversation, message_count: row.messages.length });
+        }
+        return [...owned, ...extra].sort(
+          (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        );
       } catch (err) {
         console.error('Supabase listUserConversations error, falling back to memoryStore:', err);
       }
     }
     const all = await this.listConversations(projectId);
-    return all.filter((c) => this.conversationOwnerId(c) === userId);
+    return all.filter((c) => this.conversationOwnerId(c) === userId || sharedIds.includes(c.id));
   }
 
   static async getOrCreateConversation(
@@ -1751,7 +1955,8 @@ export class DatabaseStore {
           if (existing) {
             const existingOwner = this.conversationOwnerId(existing);
             if (existingOwner && existingOwner !== ownerId) {
-              throw new Error('Conversation not found');
+              const shared = ownerId ? await this.isSharedWith(ownerId, 'conversation', existing.id) : false;
+              if (!shared) throw new Error('Conversation not found');
             }
             return existing;
           }
@@ -1779,7 +1984,8 @@ export class DatabaseStore {
       if (existing) {
         const existingOwner = this.conversationOwnerId(existing);
         if (existingOwner && existingOwner !== ownerId) {
-          throw new Error('Conversation not found');
+          const shared = ownerId ? await this.isSharedWith(ownerId, 'conversation', existing.id) : false;
+          if (!shared) throw new Error('Conversation not found');
         }
         return existing;
       }
