@@ -5,6 +5,7 @@ import { allowedCorsOrigin } from '@/lib/auth/cors';
 import { DatabaseStore } from '@/lib/db/store';
 import { AgentEngine } from '@/lib/agent-engine';
 import { canAccessConversation, canExecuteAgent, hasAdminPrivileges } from '@/lib/auth/rbac';
+import { enforceUserQuota } from '@/lib/auth/quota';
 
 const chatStreamSchema = z.object({
   message: z.string().min(1, 'Message is required').max(10000),
@@ -23,6 +24,8 @@ export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return errorResponse;
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const quotaDenied = await enforceUserQuota(auth.user, req);
+  if (quotaDenied) return quotaDenied;
 
   try {
     const rawBody = await req.json();
@@ -50,11 +53,15 @@ export async function POST(req: NextRequest) {
     if (agentId) {
       targetAgent = await DatabaseStore.getAgent(agentId);
       if (!targetAgent || !canExecuteAgent(auth, targetAgent)) {
-        return NextResponse.json({ error: 'Agent not found in authenticated project' }, { status: 404 });
+        return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
       }
     } else {
-      const agents = await DatabaseStore.listAgents(auth.project.id);
-      targetAgent = (hasAdminPrivileges(auth) ? agents : agents.filter((a) => a.is_published))[0] || null;
+      const agents = await DatabaseStore.listVisibleAgents(
+        auth.user?.id,
+        hasAdminPrivileges(auth),
+        hasAdminPrivileges(auth) ? auth.project.id : undefined
+      );
+      targetAgent = agents[0] || null;
     }
 
     if (!targetAgent) {

@@ -53,14 +53,19 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
     avgLatencyMs: 0,
     recentLogs: [] as UsageLog[],
   });
+  const [quota, setQuota] = useState<{ monthlyUsed: number; monthlyLimit: number; remaining: number } | null>(null);
   const [chatKey, setChatKey] = useState(0);
   const [openConversationId, setOpenConversationId] = useState<string | undefined>(undefined);
+  const [openAgentId, setOpenAgentId] = useState<string | undefined>(undefined);
 
-  const loadWorkspace = useCallback(async () => {
+  const loadWorkspace = useCallback(async (query?: string) => {
+    const convUrl = query && query.trim()
+      ? `/api/v1/conversations?q=${encodeURIComponent(query.trim())}`
+      : '/api/v1/conversations';
     const [projRes, agentsRes, convRes, usageRes] = await Promise.all([
       apiFetch('/api/v1/projects'),
       apiFetch('/api/v1/agents'),
-      apiFetch('/api/v1/conversations'),
+      apiFetch(convUrl),
       apiFetch('/api/v1/usage'),
     ]);
     if (projRes.ok) {
@@ -87,6 +92,7 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
         avgLatencyMs: data.summary?.avgLatencyMs || 0,
         recentLogs: data.recentLogs || [],
       });
+      setQuota(data.quota || null);
     }
   }, []);
 
@@ -114,6 +120,15 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
   const grouped = useMemo(() => groupConversations(filteredConversations), [filteredConversations]);
 
   const handleNewChat = () => {
+    setOpenConversationId(undefined);
+    setOpenAgentId(undefined);
+    setChatKey((k) => k + 1);
+    setTab('chat');
+    setSidebarOpen(false);
+  };
+
+  const handleOpenAgent = (agentId?: string) => {
+    setOpenAgentId(agentId);
     setOpenConversationId(undefined);
     setChatKey((k) => k + 1);
     setTab('chat');
@@ -193,6 +208,10 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search conversations"
+            onBlur={() => loadWorkspace(search)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') loadWorkspace(search);
+            }}
             className="w-full bg-zinc-900 border border-white/5 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none"
           />
         </div>
@@ -310,12 +329,17 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
                 activeProject={activeProject}
                 onRefreshAgents={loadWorkspace}
                 initialConversationId={openConversationId}
+                initialAgentId={openAgentId}
               />
             </div>
           )}
           {tab === 'agents' && (
             <div className="h-full overflow-y-auto">
-              <UserAgentsView agents={agents} onOpenChat={() => setTab('chat')} />
+              <UserAgentsView
+                agents={agents}
+                onOpenChat={handleOpenAgent}
+                onChanged={loadWorkspace}
+              />
             </div>
           )}
           {tab === 'projects' && (
@@ -330,7 +354,7 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
           )}
           {tab === 'usage' && (
             <div className="h-full overflow-y-auto">
-              <UserUsageView usageSummary={usageSummary} />
+              <UserUsageView usageSummary={usageSummary} quota={quota} />
             </div>
           )}
           {tab === 'settings' && (

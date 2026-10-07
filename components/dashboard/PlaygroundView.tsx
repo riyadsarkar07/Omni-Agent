@@ -28,9 +28,10 @@ interface PlaygroundViewProps {
   activeProject: Project | null;
   onRefreshAgents: () => void;
   initialConversationId?: string;
+  initialAgentId?: string;
 }
 
-export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activeProject, initialConversationId }) => {
+export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activeProject, initialConversationId, initialAgentId }) => {
   const [activeSubTab, setActiveSubTab] = useState<'chatbot' | 'music' | 'video' | 'transcribe'>('chatbot');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -292,7 +293,7 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
         {activeSubTab === 'chatbot' && (
           <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <ChatWorkspace agents={agents} activeProject={activeProject} initialConversationId={initialConversationId} />
+            <ChatWorkspace agents={agents} activeProject={activeProject} initialConversationId={initialConversationId} initialAgentId={initialAgentId} />
           </div>
         )}
 

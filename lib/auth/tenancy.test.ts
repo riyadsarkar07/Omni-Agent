@@ -6,13 +6,15 @@ import { authenticateApiRequest } from './middleware';
 import { canAccessConversation, canExecuteAgent, hasAdminPrivileges, requireAdmin } from './rbac';
 import { GET as getMe } from '../../app/api/auth/me/route';
 import { GET as getUsage } from '../../app/api/v1/usage/route';
-import { GET as getAgents } from '../../app/api/v1/agents/route';
-import { GET as getAgentById } from '../../app/api/v1/agents/[id]/route';
+import { GET as getAgents, POST as postAgent } from '../../app/api/v1/agents/route';
+import { GET as getAgentById, PATCH as patchAgent, DELETE as deleteAgent } from '../../app/api/v1/agents/[id]/route';
 import { GET as getConversation } from '../../app/api/v1/conversations/[id]/route';
 import { GET as getProviders } from '../../app/api/v1/providers/route';
 import { GET as getApiKeys } from '../../app/api/v1/api-keys/route';
 import { GET as getAdminOverview } from '../../app/api/v1/admin/overview/route';
 import { POST as postMusic } from '../../app/api/creative/music/route';
+import { GET as getMemories, POST as postMemory } from '../../app/api/v1/memories/route';
+import { DELETE as deleteMemory } from '../../app/api/v1/memories/[id]/route';
 
 const ORIGINAL_ADMIN_SECRET = process.env.ADMIN_SECRET;
 const ORIGINAL_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
@@ -164,6 +166,92 @@ describe('production tenancy and API security', () => {
     const body = await res.json();
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(body.agents));
-    assert.equal(body.agents.every((agent: { is_published: boolean }) => agent.is_published), true);
+    assert.equal(
+      body.agents.every(
+        (agent: { is_published: boolean; owner_id?: string | null }) =>
+          agent.is_published || agent.owner_id === user.user.id
+      ),
+      true
+    );
+  });
+
+  it('lets a user create and manage only their own agents', async () => {
+    const owner = await DatabaseStore.registerUser(`agent-owner-${Date.now()}@example.com`, 'password123', 'Owner');
+    const other = await DatabaseStore.registerUser(`agent-other-${Date.now()}@example.com`, 'password123', 'Other');
+    const createdWithBody = new NextRequest('http://localhost/api/v1/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'My private agent',
+        description: 'owner only',
+        model: 'gemini-3.8-flash',
+        system_instructions: 'You are a private user agent.',
+      }),
+    });
+    createdWithBody.cookies.set('omniagent_session', owner.token);
+    const createRes = await postAgent(createdWithBody);
+    assert.equal(createRes.status, 201);
+    const createdBody = await createRes.json();
+    const agentId = createdBody.agent.id;
+    assert.equal(createdBody.agent.scope, 'user');
+    assert.equal(createdBody.agent.is_published, false);
+    assert.equal(createdBody.agent.owner_id, owner.user.id);
+
+    const otherGet = await getAgentById(
+      requestWith(`http://localhost/api/v1/agents/${agentId}`, {}, { omniagent_session: other.token }),
+      { params: Promise.resolve({ id: agentId }) }
+    );
+    assert.equal(otherGet.status, 404);
+
+    const otherPatch = new NextRequest(`http://localhost/api/v1/agents/${agentId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Hijacked' }),
+    });
+    otherPatch.cookies.set('omniagent_session', other.token);
+    const patchRes = await patchAgent(otherPatch, { params: Promise.resolve({ id: agentId }) });
+    assert.equal(patchRes.status, 404);
+
+    const otherDelete = new NextRequest(`http://localhost/api/v1/agents/${agentId}`, { method: 'DELETE' });
+    otherDelete.cookies.set('omniagent_session', other.token);
+    const deleteRes = await deleteAgent(otherDelete, { params: Promise.resolve({ id: agentId }) });
+    assert.equal(deleteRes.status, 404);
+  });
+
+  it('isolates memories between users', async () => {
+    const owner = await DatabaseStore.registerUser(`mem-owner-${Date.now()}@example.com`, 'password123', 'Owner');
+    const other = await DatabaseStore.registerUser(`mem-other-${Date.now()}@example.com`, 'password123', 'Other');
+    const createReq = new NextRequest('http://localhost/api/v1/memories', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'remember my private note' }),
+    });
+    createReq.cookies.set('omniagent_session', owner.token);
+    const created = await postMemory(createReq);
+    assert.equal(created.status, 201);
+    const body = await created.json();
+    const memoryId = body.memory.id;
+
+    const otherList = await getMemories(requestWith('http://localhost/api/v1/memories', {}, { omniagent_session: other.token }));
+    const otherBody = await otherList.json();
+    assert.equal((otherBody.memories || []).some((m: { id: string }) => m.id === memoryId), false);
+
+    const steal = new NextRequest(`http://localhost/api/v1/memories/${memoryId}`, { method: 'DELETE' });
+    steal.cookies.set('omniagent_session', other.token);
+    const stolen = await deleteMemory(steal, { params: Promise.resolve({ id: memoryId }) });
+    assert.equal(stolen.status, 404);
+  });
+
+  it('does not let x-admin-secret authenticate chat or admin overview', async () => {
+    const overview = await getAdminOverview(
+      requestWith('http://localhost/api/v1/admin/overview', { 'x-admin-secret': process.env.ADMIN_SECRET! })
+    );
+    assert.ok([401, 403].includes(overview.status));
+    const { auth, errorResponse } = await authenticateApiRequest(
+      requestWith('http://localhost/api/v1/chat', { 'x-admin-secret': process.env.ADMIN_SECRET! })
+    );
+    assert.equal(auth, undefined);
+    assert.ok(errorResponse);
+    assert.equal(errorResponse.status, 401);
   });
 });

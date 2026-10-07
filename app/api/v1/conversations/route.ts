@@ -13,13 +13,14 @@ export async function GET(req: NextRequest) {
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
   const agentId = req.nextUrl.searchParams.get('agentId') || undefined;
+  const query = req.nextUrl.searchParams.get('q') || undefined;
   const isAdmin = hasAdminPrivileges(auth);
   const projectId = isAdmin
     ? req.nextUrl.searchParams.get('projectId') || undefined
     : undefined;
   const conversations = isAdmin
     ? await DatabaseStore.listConversations(projectId, agentId)
-    : await DatabaseStore.listUserConversations(auth.user?.id || '');
+    : await DatabaseStore.searchUserConversations(auth.user?.id || '', query);
 
   const scoped = agentId && !isAdmin
     ? conversations.filter((c) => c.agent_id === agentId)

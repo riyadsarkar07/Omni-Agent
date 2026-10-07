@@ -1,24 +1,22 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview } from '../types';
+import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview, UserPreferences, UserMemory, UserFile } from '../types';
 import { AIProvider } from '../providers/types';
 import { hashApiKey } from '../auth/api-key';
 import { getAdminEmail, getAdminPassword, isProduction } from '../config';
 import { encryptProviderSecret } from '../providers/secrets';
 import { kindFromProtocol, slugifyProviderId } from '../providers/catalog';
 import { mapRowToProvider, toDbProviderRow, toPublicProvider } from '../providers/mapping';
+import { getSupabaseAdmin, getSupabaseAuth, isSupabaseConfigured as supabaseConfigured, DEFAULT_PROJECT_ID, DEFAULT_PROJECT_SLUG } from './supabase';
 import crypto from 'crypto';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = isProduction()
-  ? process.env.SUPABASE_SERVICE_ROLE_KEY
-  : process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function db() {
+  return getSupabaseAdmin();
+}
 
-export const supabase: SupabaseClient | null =
-  supabaseUrl && supabaseKey
-    ? createClient(supabaseUrl, supabaseKey, {
-        auth: { persistSession: false },
-      })
-    : null;
+function authDb() {
+  return getSupabaseAuth();
+}
+
+export const supabase = getSupabaseAdmin();
 
 interface StoredUser extends User {
   password_hash: string;
@@ -341,13 +339,115 @@ export const DEMO_PRESET_KEY = DEMO_API_KEY_RAW;
 export class DatabaseStore {
   // Check Supabase connection state
   static isSupabaseConfigured(): boolean {
-    if (isProduction()) {
-      return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+    return supabaseConfigured();
+  }
+
+  private static hashSessionToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private static newSessionToken(): string {
+    return `sess_${crypto.randomBytes(24).toString('hex')}`;
+  }
+
+  private static defaultPreferences(raw?: unknown): UserPreferences {
+    const value = raw && typeof raw === 'object' ? (raw as UserPreferences) : {};
+    return {
+      default_model: value.default_model || null,
+      default_provider_id: value.default_provider_id || null,
+      appearance: value.appearance === 'light' || value.appearance === 'dark' ? value.appearance : 'system',
+      memory_enabled: value.memory_enabled !== false,
+      monthly_request_quota: typeof value.monthly_request_quota === 'number' ? value.monthly_request_quota : 500,
+    };
+  }
+
+  private static mapProfileRow(row: Record<string, unknown>, emailFallback?: string, createdAtFallback?: string): User {
+    return {
+      id: String(row.id),
+      email: String(row.email || emailFallback || ''),
+      full_name: (row.full_name as string) || String(emailFallback || '').split('@')[0] || '',
+      role: row.role === 'admin' ? 'admin' : ((row.role as UserRole) || 'developer'),
+      status: row.status === 'disabled' ? 'disabled' : 'active',
+      last_active_at: (row.last_active_at as string) || null,
+      created_at: String(row.created_at || createdAtFallback || new Date().toISOString()),
+      preferences: this.defaultPreferences(row.preferences),
+    };
+  }
+
+  private static async persistSession(userId: string, token: string, expiresAt: string): Promise<void> {
+    const admin = db();
+    if (admin) {
+      try {
+        await admin.from('auth_sessions').insert({
+          token_hash: this.hashSessionToken(token),
+          user_id: userId,
+          expires_at: expiresAt,
+        });
+      } catch (err) {
+        console.error('Failed to persist auth session:', err);
+      }
     }
-    return Boolean(
-      process.env.NEXT_PUBLIC_SUPABASE_URL &&
-        (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-    );
+    memoryStore.sessions.push({ token, user_id: userId, expires_at: expiresAt });
+  }
+
+  private static async revokeSessionToken(token: string): Promise<void> {
+    const admin = db();
+    if (admin) {
+      try {
+        await admin.from('auth_sessions').delete().eq('token_hash', this.hashSessionToken(token));
+      } catch {
+        //
+      }
+    }
+    memoryStore.sessions = memoryStore.sessions.filter((s) => s.token !== token);
+  }
+
+  private static async ensureDefaultProjectId(): Promise<string> {
+    const projects = await this.listProjects();
+    const core = projects.find((p) => p.id === DEFAULT_PROJECT_ID || p.slug === DEFAULT_PROJECT_SLUG) || projects[0];
+    return core?.id || DEFAULT_PROJECT_ID;
+  }
+
+  private static async ensureUserMembership(userId: string, role: 'owner' | 'admin' | 'member' = 'member'): Promise<string> {
+    const projectId = await this.ensureDefaultProjectId();
+    await this.addProjectMember(projectId, userId, role);
+    return projectId;
+  }
+
+  private static async upsertProfileRecord(input: {
+    id: string;
+    email: string;
+    full_name?: string;
+    role?: UserRole;
+    status?: UserStatus;
+  }): Promise<User> {
+    const admin = db();
+    const role = input.role || 'developer';
+    const status = input.status || 'active';
+    const payload = {
+      id: input.id,
+      email: input.email.toLowerCase(),
+      full_name: input.full_name || input.email.split('@')[0],
+      role,
+      status,
+      last_active_at: new Date().toISOString(),
+    };
+    if (admin) {
+      const { data, error } = await admin.from('profiles').upsert(payload).select().maybeSingle();
+      if (!error && data) {
+        return this.mapProfileRow(data as Record<string, unknown>, input.email);
+      }
+    }
+    return {
+      id: input.id,
+      email: input.email.toLowerCase(),
+      full_name: payload.full_name,
+      role,
+      status,
+      last_active_at: payload.last_active_at,
+      created_at: new Date().toISOString(),
+      preferences: this.defaultPreferences(),
+    };
   }
 
   // Private helper to seed default data if DB is empty
@@ -474,9 +574,11 @@ export class DatabaseStore {
 
   // User Auth Methods
   static async registerUser(email: string, password: string, fullName?: string): Promise<AuthSession> {
-    if (supabase) {
+    const authClient = authDb();
+    const admin = db();
+    if (authClient && admin) {
       try {
-        const { data, error } = await supabase.auth.signUp({
+        const { data, error } = await authClient.auth.signUp({
           email,
           password,
           options: {
@@ -490,46 +592,27 @@ export class DatabaseStore {
 
         const configuredAdminEmail = getAdminEmail();
         const isSystemAdmin = Boolean(configuredAdminEmail) && email.toLowerCase() === configuredAdminEmail!.toLowerCase();
-        const role = isSystemAdmin ? 'admin' : 'developer';
-
-        // Upsert profile record
-        await supabase.from('profiles').upsert({
+        const role: UserRole = isSystemAdmin ? 'admin' : 'developer';
+        const user = await this.upsertProfileRecord({
           id: data.user.id,
           email: email.toLowerCase(),
           full_name: fullName || email.split('@')[0],
-          role: role,
+          role,
           status: 'active',
-          last_active_at: new Date().toISOString(),
         });
-
-        // Add to default project member list
-        await supabase.from('project_members').upsert({
-          project_id: 'da1a0000-0000-4000-8000-000000000001',
-          user_id: data.user.id,
-          role: isSystemAdmin ? 'admin' : 'member',
-        });
-
-        return {
-          user: {
-            id: data.user.id,
-            email: email.toLowerCase(),
-            full_name: fullName || email.split('@')[0],
-            role,
-            status: 'active',
-            last_active_at: new Date().toISOString(),
-            created_at: data.user.created_at,
-          },
-          token: data.session?.access_token || '',
-          expiresAt: data.session
-            ? new Date(Date.now() + (data.session.expires_in || 3600) * 1000).toISOString()
-            : new Date(Date.now() + 86400000 * 7).toISOString(),
-        };
+        await this.ensureUserMembership(user.id, isSystemAdmin ? 'admin' : 'member');
+        const token = this.newSessionToken();
+        const expiresAt = new Date(Date.now() + 86400000 * 7).toISOString();
+        await this.persistSession(user.id, token, expiresAt);
+        return { user: this.toPublicUser(user), token, expiresAt };
       } catch (err) {
+        if (err instanceof Error && /already registered|already exists/i.test(err.message)) {
+          throw new Error('User with this email already exists.');
+        }
         console.error('Supabase registration error, falling back to memoryStore:', err);
       }
     }
 
-    // Memory Store Fallback
     const existing = memoryStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (existing) {
       throw new Error('User with this email already exists.');
@@ -537,7 +620,6 @@ export class DatabaseStore {
 
     const salt = crypto.randomBytes(16).toString('hex');
     const password_hash = crypto.scryptSync(password, salt, 64).toString('hex');
-
     const configuredAdminEmail = getAdminEmail();
     const isSystemAdmin = Boolean(configuredAdminEmail) && email.toLowerCase() === configuredAdminEmail!.toLowerCase();
     const newUser: StoredUser = {
@@ -559,79 +641,44 @@ export class DatabaseStore {
       role: isSystemAdmin ? 'owner' : 'member',
     });
 
-    const token = `sess_${crypto.randomBytes(24).toString('hex')}`;
+    const token = this.newSessionToken();
     const expiresAt = new Date(Date.now() + 86400000 * 7).toISOString();
-
-    memoryStore.sessions.push({
-      token,
-      user_id: newUser.id,
-      expires_at: expiresAt,
-    });
-
-    const { password_hash: _, salt: __, ...userWithoutSecrets } = newUser;
-    return {
-      user: userWithoutSecrets,
-      token,
-      expiresAt,
-    };
+    await this.persistSession(newUser.id, token, expiresAt);
+    return { user: this.toPublicUser(newUser), token, expiresAt };
   }
 
   static async loginUser(email: string, password: string): Promise<AuthSession> {
-    if (supabase) {
+    const authClient = authDb();
+    const admin = db();
+    if (authClient && admin) {
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const { data, error } = await authClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        if (!data.user || !data.session) throw new Error('Invalid credentials.');
+        if (!data.user) throw new Error('Invalid credentials.');
 
-        let { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).maybeSingle();
         const configuredAdminEmail = getAdminEmail();
         const isSystemAdmin = Boolean(configuredAdminEmail) && email.toLowerCase() === configuredAdminEmail!.toLowerCase();
-        const role = isSystemAdmin ? 'admin' : profile?.role || 'developer';
-        const status: UserStatus = profile?.status === 'disabled' ? 'disabled' : 'active';
+        const existing = await this.getUserById(data.user.id);
+        const role: UserRole = isSystemAdmin ? 'admin' : existing?.role || 'developer';
+        const status: UserStatus = existing?.status === 'disabled' ? 'disabled' : 'active';
         if (status === 'disabled') {
           const disabledError = new Error('This account has been disabled.');
           (disabledError as Error & { code?: string }).code = 'ACCOUNT_DISABLED';
           throw disabledError;
         }
 
-        if (!profile) {
-          // Sync profile to database
-          const { data: newProfile } = await supabase
-            .from('profiles')
-            .upsert({
-              id: data.user.id,
-              email: email.toLowerCase(),
-              full_name: data.user.user_metadata?.full_name || email.split('@')[0],
-              role,
-              status: 'active',
-              last_active_at: new Date().toISOString(),
-            })
-            .select()
-            .single();
-          if (newProfile) profile = newProfile;
-        } else {
-          await supabase
-            .from('profiles')
-            .update({ last_active_at: new Date().toISOString() })
-            .eq('id', data.user.id);
-        }
-
-        return {
-          user: {
-            id: data.user.id,
-            email: data.user.email!,
-            full_name: profile?.full_name || data.user.user_metadata?.full_name || email.split('@')[0],
-            role,
-            status,
-            last_active_at: new Date().toISOString(),
-            created_at: data.user.created_at,
-          },
-          token: data.session.access_token,
-          expiresAt: new Date(Date.now() + (data.session.expires_in || 3600) * 1000).toISOString(),
-        };
+        const user = await this.upsertProfileRecord({
+          id: data.user.id,
+          email: (data.user.email || email).toLowerCase(),
+          full_name: existing?.full_name || data.user.user_metadata?.full_name || email.split('@')[0],
+          role,
+          status: 'active',
+        });
+        await this.ensureUserMembership(user.id, isSystemAdmin ? 'admin' : 'member');
+        const token = this.newSessionToken();
+        const expiresAt = new Date(Date.now() + 86400000 * 7).toISOString();
+        await this.persistSession(user.id, token, expiresAt);
+        return { user: this.toPublicUser(user), token, expiresAt };
       } catch (err) {
         if (err instanceof Error && ((err as Error & { code?: string }).code === 'ACCOUNT_DISABLED' || /disabled/i.test(err.message))) {
           throw err;
@@ -640,7 +687,6 @@ export class DatabaseStore {
       }
     }
 
-    // Memory Store Fallback
     const user = memoryStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (!user) {
       throw new Error('Invalid email or password.');
@@ -650,69 +696,81 @@ export class DatabaseStore {
     if (computedHash !== user.password_hash) {
       throw new Error('Invalid email or password.');
     }
-
     if (user.status === 'disabled') {
       throw new Error('This account has been disabled.');
     }
     user.last_active_at = new Date().toISOString();
-
-    const token = `sess_${crypto.randomBytes(24).toString('hex')}`;
+    const token = this.newSessionToken();
     const expiresAt = new Date(Date.now() + 86400000 * 7).toISOString();
-
-    memoryStore.sessions.push({
-      token,
-      user_id: user.id,
-      expires_at: expiresAt,
-    });
-
-    const { password_hash: _, salt: __, ...userWithoutSecrets } = user;
-    return {
-      user: userWithoutSecrets,
-      token,
-      expiresAt,
-    };
+    await this.persistSession(user.id, token, expiresAt);
+    return { user: this.toPublicUser(user), token, expiresAt };
   }
 
   static async verifySessionToken(token: string): Promise<User | null> {
     if (!token) return null;
+    const admin = db();
 
-    if (supabase) {
+    if (token.startsWith('sess_') && admin) {
       try {
-        const { data: { user }, error } = await supabase.auth.getUser(token);
-        if (!error && user?.email) {
-          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-          const configuredAdminEmail = getAdminEmail();
-          const isSystemAdmin = Boolean(configuredAdminEmail) && user.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
-
-          return {
-            id: user.id,
-            email: user.email,
-            full_name: profile?.full_name || user.user_metadata?.full_name || user.email.split('@')[0] || '',
-            role: isSystemAdmin ? 'admin' : profile?.role || 'developer',
-            status: profile?.status === 'disabled' ? 'disabled' : 'active',
-            last_active_at: profile?.last_active_at || null,
-            created_at: user.created_at,
-          };
+        const { data: session, error } = await admin
+          .from('auth_sessions')
+          .select('*')
+          .eq('token_hash', this.hashSessionToken(token))
+          .maybeSingle();
+        if (!error && session) {
+          if (new Date(session.expires_at).getTime() < Date.now()) {
+            await admin.from('auth_sessions').delete().eq('token_hash', this.hashSessionToken(token));
+            return null;
+          }
+          const user = await this.getUserById(String(session.user_id));
+          if (user) return this.toPublicUser(user);
         }
       } catch (err) {
         console.error('Supabase session verification error, falling back to memoryStore:', err);
       }
     }
 
-    // Memory Store Fallback
+    if (admin && token.split('.').length === 3) {
+      try {
+        const { data, error } = await admin.auth.getUser(token);
+        if (!error && data.user?.email) {
+          const profile = await this.getUserById(data.user.id);
+          const configuredAdminEmail = getAdminEmail();
+          const isSystemAdmin =
+            Boolean(configuredAdminEmail) && data.user.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
+          if (profile) {
+            return this.toPublicUser({
+              ...profile,
+              role: isSystemAdmin ? 'admin' : profile.role,
+            });
+          }
+          return this.toPublicUser(
+            await this.upsertProfileRecord({
+              id: data.user.id,
+              email: data.user.email,
+              full_name: data.user.user_metadata?.full_name || data.user.email.split('@')[0],
+              role: isSystemAdmin ? 'admin' : 'developer',
+            })
+          );
+        }
+      } catch (err) {
+        console.error('Supabase JWT verification error, falling back to memoryStore:', err);
+      }
+    }
+
     const sess = memoryStore.sessions.find((s) => s.token === token);
     if (!sess) return null;
-
     if (new Date(sess.expires_at).getTime() < Date.now()) {
       memoryStore.sessions = memoryStore.sessions.filter((s) => s.token !== token);
       return null;
     }
-
     const user = memoryStore.users.find((u) => u.id === sess.user_id);
-    if (!user) return null;
+    return user ? this.toPublicUser(user) : null;
+  }
 
-    const { password_hash: _, salt: __, ...userWithoutSecrets } = user;
-    return userWithoutSecrets;
+  static async logoutSession(token?: string | null): Promise<void> {
+    if (!token) return;
+    await this.revokeSessionToken(token);
   }
 
   static toPublicUser(user: StoredUser | User): User {
@@ -724,6 +782,7 @@ export class DatabaseStore {
       status: user.status === 'disabled' ? 'disabled' : 'active',
       last_active_at: user.last_active_at || null,
       created_at: user.created_at,
+      preferences: this.defaultPreferences((user as User).preferences),
     };
   }
 
@@ -734,15 +793,7 @@ export class DatabaseStore {
         let req = supabase.from('profiles').select('*').order('created_at', { ascending: false });
         const { data, error } = await req;
         if (!error && data) {
-          const users = data.map((row) => this.toPublicUser({
-            id: row.id,
-            email: row.email,
-            full_name: row.full_name,
-            role: row.role || 'developer',
-            status: row.status === 'disabled' ? 'disabled' : 'active',
-            last_active_at: row.last_active_at || null,
-            created_at: row.created_at,
-          }));
+          const users = data.map((row) => this.mapProfileRow(row as Record<string, unknown>));
           if (!needle) return users;
           return users.filter(
             (u) =>
@@ -769,15 +820,7 @@ export class DatabaseStore {
       try {
         const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
         if (!error && data) {
-          return this.toPublicUser({
-            id: data.id,
-            email: data.email,
-            full_name: data.full_name,
-            role: data.role || 'developer',
-            status: data.status === 'disabled' ? 'disabled' : 'active',
-            last_active_at: data.last_active_at || null,
-            created_at: data.created_at,
-          });
+          return this.mapProfileRow(data as Record<string, unknown>);
         }
       } catch (err) {
         console.error('Supabase getUserById error, falling back to memoryStore:', err);
@@ -789,7 +832,7 @@ export class DatabaseStore {
 
   static async updateUser(
     id: string,
-    updates: { role?: UserRole; status?: UserStatus; full_name?: string }
+    updates: { role?: UserRole; status?: UserStatus; full_name?: string; preferences?: UserPreferences }
   ): Promise<User | null> {
     if (supabase) {
       try {
@@ -797,17 +840,10 @@ export class DatabaseStore {
         if (updates.role) payload.role = updates.role;
         if (updates.status) payload.status = updates.status;
         if (updates.full_name !== undefined) payload.full_name = updates.full_name;
+        if (updates.preferences) payload.preferences = this.defaultPreferences(updates.preferences);
         const { data, error } = await supabase.from('profiles').update(payload).eq('id', id).select().maybeSingle();
         if (!error && data) {
-          return this.toPublicUser({
-            id: data.id,
-            email: data.email,
-            full_name: data.full_name,
-            role: data.role || 'developer',
-            status: data.status === 'disabled' ? 'disabled' : 'active',
-            last_active_at: data.last_active_at || null,
-            created_at: data.created_at,
-          });
+          return this.mapProfileRow(data as Record<string, unknown>);
         }
       } catch (err) {
         console.error('Supabase updateUser error, falling back to memoryStore:', err);
@@ -819,6 +855,7 @@ export class DatabaseStore {
     if (updates.role) user.role = updates.role;
     if (updates.status) user.status = updates.status;
     if (updates.full_name !== undefined) user.full_name = updates.full_name;
+    if (updates.preferences) (user as StoredUser & { preferences?: UserPreferences }).preferences = this.defaultPreferences(updates.preferences);
     return this.toPublicUser(user);
   }
 
@@ -835,7 +872,7 @@ export class DatabaseStore {
     if (user) user.last_active_at = now;
   }
 
-  static async updateUserProfile(id: string, updates: { full_name?: string }): Promise<User | null> {
+  static async updateUserProfile(id: string, updates: { full_name?: string; preferences?: UserPreferences }): Promise<User | null> {
     return this.updateUser(id, updates);
   }
 
@@ -867,12 +904,15 @@ export class DatabaseStore {
   }
 
   static async listUserProjects(userId: string): Promise<Project[]> {
-    const memberIds = await this.listUserProjectIds(userId);
-    const all = await this.listProjects();
+    let memberIds = await this.listUserProjectIds(userId);
     if (memberIds.length === 0) {
-      return all.filter((p) => p.id === 'proj_default_core' || p.slug === 'core-platform').slice(0, 1);
+      const projectId = await this.ensureUserMembership(userId, 'member');
+      memberIds = [projectId];
     }
-    return all.filter((p) => memberIds.includes(p.id));
+    const all = await this.listProjects();
+    const owned = all.filter((p) => memberIds.includes(p.id));
+    if (owned.length > 0) return owned;
+    return all.filter((p) => p.id === DEFAULT_PROJECT_ID || p.slug === DEFAULT_PROJECT_SLUG).slice(0, 1);
   }
 
   static async getUserPrimaryProject(userId: string): Promise<Project | null> {
@@ -1209,6 +1249,8 @@ export class DatabaseStore {
             memory_enabled: data.memory_enabled !== false,
             tools_enabled: data.tools_enabled || [],
             is_published: data.is_published !== false,
+            owner_id: data.owner_id || null,
+            scope: data.scope || 'platform',
           })
           .select()
           .single();
@@ -1236,6 +1278,8 @@ export class DatabaseStore {
       memory_enabled: data.memory_enabled !== false,
       tools_enabled: data.tools_enabled || [],
       is_published: data.is_published !== false,
+      owner_id: data.owner_id || null,
+      scope: data.scope || 'platform',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -1265,6 +1309,8 @@ export class DatabaseStore {
             memory_enabled: updates.memory_enabled,
             tools_enabled: updates.tools_enabled,
             is_published: updates.is_published,
+            owner_id: updates.owner_id,
+            scope: updates.scope,
           })
           .eq('id', id)
           .select()
@@ -1299,6 +1345,183 @@ export class DatabaseStore {
     if (idx === -1) return false;
     memoryStore.agents.splice(idx, 1);
     return true;
+  }
+
+  static async listVisibleAgents(userId?: string, isAdmin = false, projectId?: string): Promise<Agent[]> {
+    const agents = await this.listAgents(projectId);
+    if (isAdmin) return agents;
+    return agents.filter((agent) => {
+      if (agent.owner_id && agent.owner_id === userId) return true;
+      if (agent.scope === 'user') return false;
+      return agent.is_published;
+    });
+  }
+
+  static async searchUserConversations(userId: string, query?: string): Promise<Conversation[]> {
+    const conversations = await this.listUserConversations(userId);
+    const needle = query?.trim().toLowerCase();
+    if (!needle) return conversations;
+    return conversations.filter((c) => (c.title || '').toLowerCase().includes(needle));
+  }
+
+  static async countUserUsageThisMonth(userId: string): Promise<number> {
+    const start = new Date();
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+    const admin = db();
+    if (admin) {
+      try {
+        const { count, error } = await admin
+          .from('usage_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .gte('created_at', start.toISOString());
+        if (!error && typeof count === 'number') return count;
+      } catch {
+        //
+      }
+    }
+    return memoryStore.usageLogs.filter(
+      (l) => l.user_id === userId && new Date(l.created_at).getTime() >= start.getTime()
+    ).length;
+  }
+
+  static async listUserMemories(userId: string): Promise<UserMemory[]> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('user_memories')
+          .select('*')
+          .eq('user_id', userId)
+          .order('updated_at', { ascending: false });
+        if (!error && data) return data as UserMemory[];
+      } catch (err) {
+        console.error('Supabase listUserMemories error, falling back to memoryStore:', err);
+      }
+    }
+    return ((memoryStore as MemoryStore & { memories?: UserMemory[] }).memories || []).filter((m) => m.user_id === userId);
+  }
+
+  static async createUserMemory(userId: string, content: string): Promise<UserMemory> {
+    const trimmed = content.trim().slice(0, 2000);
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('user_memories')
+          .insert({ user_id: userId, content: trimmed })
+          .select()
+          .single();
+        if (!error && data) return data as UserMemory;
+      } catch (err) {
+        console.error('Supabase createUserMemory error, falling back to memoryStore:', err);
+      }
+    }
+    const memory: UserMemory = {
+      id: `mem_${crypto.randomBytes(6).toString('hex')}`,
+      user_id: userId,
+      content: trimmed,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    const store = memoryStore as MemoryStore & { memories?: UserMemory[] };
+    store.memories = store.memories || [];
+    store.memories.unshift(memory);
+    return memory;
+  }
+
+  static async deleteUserMemory(userId: string, memoryId: string): Promise<boolean> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('user_memories')
+          .delete()
+          .eq('id', memoryId)
+          .eq('user_id', userId)
+          .select('id');
+        if (!error && data && data.length > 0) return true;
+      } catch (err) {
+        console.error('Supabase deleteUserMemory error, falling back to memoryStore:', err);
+      }
+    }
+    const store = memoryStore as MemoryStore & { memories?: UserMemory[] };
+    const before = store.memories?.length || 0;
+    store.memories = (store.memories || []).filter((m) => !(m.id === memoryId && m.user_id === userId));
+    return (store.memories.length || 0) < before;
+  }
+
+  static async createUserFile(file: Omit<UserFile, 'id' | 'created_at'>): Promise<UserFile> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin.from('user_files').insert(file).select().single();
+        if (!error && data) return data as UserFile;
+      } catch (err) {
+        console.error('Supabase createUserFile error, falling back to memoryStore:', err);
+      }
+    }
+    const created: UserFile = {
+      ...file,
+      id: `file_${crypto.randomBytes(6).toString('hex')}`,
+      created_at: new Date().toISOString(),
+    };
+    const store = memoryStore as MemoryStore & { files?: UserFile[] };
+    store.files = store.files || [];
+    store.files.unshift(created);
+    return created;
+  }
+
+  static async listUserFiles(userId: string): Promise<UserFile[]> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('user_files')
+          .select('id, user_id, conversation_id, original_name, mime_type, size_bytes, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        if (!error && data) return data as UserFile[];
+      } catch (err) {
+        console.error('Supabase listUserFiles error, falling back to memoryStore:', err);
+      }
+    }
+    return ((memoryStore as MemoryStore & { files?: UserFile[] }).files || []).filter((f) => f.user_id === userId);
+  }
+
+  static async getUserFile(id: string): Promise<(UserFile & { storage_path?: string }) | null> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin.from('user_files').select('*').eq('id', id).maybeSingle();
+        if (!error && data) return data as UserFile & { storage_path?: string };
+      } catch {
+        //
+      }
+    }
+    return ((memoryStore as MemoryStore & { files?: UserFile[] }).files || []).find((f) => f.id === id) || null;
+  }
+
+  static async deleteUserFile(userId: string, fileId: string): Promise<boolean> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('user_files')
+          .delete()
+          .eq('id', fileId)
+          .eq('user_id', userId)
+          .select('id');
+        if (!error && data && data.length > 0) return true;
+      } catch {
+        //
+      }
+    }
+    const store = memoryStore as MemoryStore & { files?: UserFile[] };
+    const before = store.files?.length || 0;
+    store.files = (store.files || []).filter((f) => !(f.id === fileId && f.user_id === userId));
+    return (store.files.length || 0) < before;
   }
 
   // API Keys

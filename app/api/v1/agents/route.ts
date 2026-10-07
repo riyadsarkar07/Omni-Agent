@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
-import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
+import { actorEmail, hasAdminPrivileges, requireSessionUser } from '@/lib/auth/rbac';
 
 const createAgentSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(80),
@@ -19,7 +19,7 @@ const createAgentSchema = z.object({
   thinking_level: z.enum(['HIGH', 'LOW', 'MINIMAL', 'OFF']).default('OFF'),
   memory_enabled: z.boolean().default(true),
   tools_enabled: z.array(z.string()).default([]),
-  is_published: z.boolean().default(true),
+  is_published: z.boolean().default(false),
   project_id: z.string().optional(),
 });
 
@@ -34,17 +34,16 @@ export async function GET(req: NextRequest) {
 
   const isAdmin = hasAdminPrivileges(auth);
   const projectId = req.nextUrl.searchParams.get('projectId') || undefined;
-  const agents = await DatabaseStore.listAgents(projectId);
-  const visible = isAdmin ? agents : agents.filter((a) => a.is_published);
+  const agents = await DatabaseStore.listVisibleAgents(auth.user?.id, isAdmin, isAdmin ? projectId : undefined);
 
-  return applyCorsHeaders(NextResponse.json({ agents: visible, total: visible.length }));
+  return applyCorsHeaders(NextResponse.json({ agents, total: agents.length }));
 }
 
 export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
-  const denied = requireAdmin(auth);
+  const denied = requireSessionUser(auth);
   if (denied) return denied;
 
   try {
@@ -58,13 +57,17 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = parseResult.data;
-    const targetProjectId = payload.project_id || auth.project.id;
+    const isAdmin = hasAdminPrivileges(auth);
+    const targetProjectId = isAdmin ? payload.project_id || auth.project.id : auth.project.id;
 
     const newAgent = await DatabaseStore.createAgent({
       ...payload,
       fallback_provider_id: payload.fallback_provider_id ?? undefined,
       fallback_model: payload.fallback_model ?? undefined,
       project_id: targetProjectId,
+      owner_id: isAdmin ? null : auth.user!.id,
+      scope: isAdmin ? 'platform' : 'user',
+      is_published: isAdmin ? payload.is_published : false,
     });
 
     await DatabaseStore.logAudit({

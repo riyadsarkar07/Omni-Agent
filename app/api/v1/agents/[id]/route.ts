@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
-import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
+import { actorEmail, canExecuteAgent, canManageAgent, hasAdminPrivileges, requireSessionUser } from '@/lib/auth/rbac';
 
 const updateAgentSchema = z.object({
   name: z.string().min(2).max(80).optional(),
@@ -34,11 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const agent = await DatabaseStore.getAgent(id);
 
-  const isAdmin = hasAdminPrivileges(auth);
-  if (!agent) {
-    return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
-  }
-  if (!isAdmin && !agent.is_published) {
+  if (!agent || !canExecuteAgent(auth, agent)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
 
@@ -49,13 +45,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
-  const denied = requireAdmin(auth);
+  const denied = requireSessionUser(auth);
   if (denied) return denied;
 
   const { id } = await params;
   const existingAgent = await DatabaseStore.getAgent(id);
 
-  if (!existingAgent || (existingAgent.project_id !== auth.project.id && !hasAdminPrivileges(auth))) {
+  if (!existingAgent || !canManageAgent(auth, existingAgent)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
 
@@ -70,11 +66,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     const payload = parseResult.data;
+    const isAdmin = hasAdminPrivileges(auth);
     const updated = await DatabaseStore.updateAgent(id, {
       ...payload,
       fallback_provider_id: payload.fallback_provider_id ?? undefined,
       fallback_model: payload.fallback_model ?? undefined,
       max_output_tokens: payload.max_output_tokens === null ? undefined : payload.max_output_tokens,
+      is_published: isAdmin ? payload.is_published : existingAgent.is_published,
     });
 
     await DatabaseStore.logAudit({
@@ -98,13 +96,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
-  const denied = requireAdmin(auth);
+  const denied = requireSessionUser(auth);
   if (denied) return denied;
 
   const { id } = await params;
   const existingAgent = await DatabaseStore.getAgent(id);
 
-  if (!existingAgent || (existingAgent.project_id !== auth.project.id && !hasAdminPrivileges(auth))) {
+  if (!existingAgent || !canManageAgent(auth, existingAgent)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
 

@@ -40,10 +40,11 @@ interface ChatWorkspaceProps {
   agents: Agent[];
   activeProject: Project | null;
   initialConversationId?: string;
+  initialAgentId?: string;
 }
 
-export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProject, initialConversationId }) => {
-  const initialAgent = agents[0];
+export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProject, initialConversationId, initialAgentId }) => {
+  const initialAgent = agents.find((a) => a.id === initialAgentId) || agents[0];
   const [selectedAgentId, setSelectedAgentId] = useState<string>(initialAgent?.id || '');
   const [model, setModel] = useState<string>(initialAgent?.model || '');
   const [selectedRole, setSelectedRole] = useState<string>('custom');
@@ -273,7 +274,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
   };
 
   const persistAgentOverrides = useCallback(async () => {
-    if (!selectedAgent) return;
+    if (!selectedAgent || selectedAgent.scope !== 'user') return;
     const instructions = (systemInstructions || selectedAgent.system_instructions || '').trim();
     try {
       await apiFetch(`/api/v1/agents/${selectedAgent.id}`, {

@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
       DatabaseStore.listProviders(),
       DatabaseStore.getPlatformSettings().catch(() => ({ default_model: null })),
     ]);
+    const userDefault = auth.user?.preferences?.default_model || null;
     const models = providers
       .filter((p) => p.enabled)
       .flatMap((p) =>
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest) {
         success: true,
         models,
         defaultModel:
+          userDefault ||
           settings.default_model ||
           providers.find((p) => p.isDefault)?.defaultModel ||
           models[0]?.id ||

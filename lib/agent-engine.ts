@@ -31,12 +31,25 @@ export interface ChatEngineResult {
 }
 
 export class AgentEngine {
+  private static async resolveSystemInstruction(agent: Agent, userId?: string): Promise<string> {
+    const base = agent.system_instructions || '';
+    if (!userId || agent.memory_enabled === false) return base;
+    const memories = await DatabaseStore.listUserMemories(userId);
+    if (!memories.length) return base;
+    const notes = memories
+      .slice(0, 12)
+      .map((m) => `- ${m.content}`)
+      .join('\n');
+    return `${base}\n\nUser memory notes (private to this user):\n${notes}`;
+  }
+
   /**
    * Standard Unary Chat Execution
    */
   static async executeChat(options: ChatEngineOptions): Promise<ChatEngineResult> {
     const startTime = Date.now();
     const { agent, message, projectId, apiKeyId } = options;
+    const systemInstruction = await AgentEngine.resolveSystemInstruction(agent, options.userId);
 
     // Resolve or create conversation
     const conversation = await DatabaseStore.getOrCreateConversation(
@@ -83,7 +96,7 @@ export class AgentEngine {
       const params = {
         model: modelToUse,
         messages: messagesForPayload,
-        systemInstruction: agent.system_instructions,
+        systemInstruction,
         temperature: agent.temperature,
         topP: agent.top_p,
         topK: agent.top_k,
@@ -204,7 +217,7 @@ export class AgentEngine {
 
     // Build config
     const config: Record<string, unknown> = {
-      systemInstruction: agent.system_instructions,
+      systemInstruction,
       temperature: agent.temperature ?? 0.7,
       topP: agent.top_p ?? 0.95,
       topK: agent.top_k ?? 40,
@@ -271,7 +284,7 @@ export class AgentEngine {
             },
           ],
           config: {
-            systemInstruction: agent.system_instructions,
+            systemInstruction,
             temperature: agent.temperature,
           },
         });
@@ -363,6 +376,7 @@ export class AgentEngine {
     const encoder = new TextEncoder();
     const startTime = Date.now();
     const { agent, message, projectId, apiKeyId } = options;
+    const systemInstruction = await AgentEngine.resolveSystemInstruction(agent, options.userId);
 
     const conversation = await DatabaseStore.getOrCreateConversation(
       options.conversationId,
@@ -404,7 +418,7 @@ export class AgentEngine {
       const params = {
         model: modelToUse,
         messages: messagesForPayload,
-        systemInstruction: agent.system_instructions,
+        systemInstruction,
         temperature: agent.temperature,
         topP: agent.top_p,
         topK: agent.top_k,
@@ -552,7 +566,7 @@ export class AgentEngine {
     contents.push({ role: 'user', parts: [{ text: message }] });
 
     const config: Record<string, unknown> = {
-      systemInstruction: agent.system_instructions,
+      systemInstruction,
       temperature: agent.temperature ?? 0.7,
       topP: agent.top_p ?? 0.95,
       topK: agent.top_k ?? 40,

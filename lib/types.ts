@@ -8,6 +8,14 @@ export type GeminiModelId =
 export type UserRole = 'admin' | 'developer' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
 
+export interface UserPreferences {
+  default_model?: string | null;
+  default_provider_id?: string | null;
+  appearance?: 'system' | 'dark' | 'light';
+  memory_enabled?: boolean;
+  monthly_request_quota?: number;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -15,6 +23,26 @@ export interface User {
   role: UserRole;
   status?: UserStatus;
   last_active_at?: string | null;
+  created_at: string;
+  preferences?: UserPreferences;
+}
+
+export interface UserMemory {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserFile {
+  id: string;
+  user_id: string;
+  conversation_id?: string | null;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_path?: string;
   created_at: string;
 }
 
@@ -57,6 +85,8 @@ export interface Agent {
   memory_enabled: boolean;
   tools_enabled: string[];
   is_published: boolean;
+  owner_id?: string | null;
+  scope?: 'platform' | 'user';
   created_at: string;
   updated_at: string;
 }

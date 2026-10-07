@@ -88,22 +88,25 @@ export async function authenticateApiRequest(
         ),
       };
     }
-    const project = isAdmin
+    let project = isAdmin
       ? (await DatabaseStore.listProjects())[0]
       : await DatabaseStore.getUserPrimaryProject(sessionUser.id);
+    if (!project) {
+      project = (await DatabaseStore.listProjects())[0] || {
+        id: 'proj_default_core',
+        name: 'Universal Core Platform',
+        slug: 'core-platform',
+        description: '',
+        rate_limit_rpm: 60,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
     DatabaseStore.touchUserActivity(sessionUser.id).catch(() => {});
     return {
       auth: {
-        project: project || {
-          id: 'proj_default_core',
-          name: 'Universal Core Platform',
-          slug: 'core-platform',
-          description: '',
-          rate_limit_rpm: 60,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
+        project,
         isAdmin,
         user: sessionUser,
       },

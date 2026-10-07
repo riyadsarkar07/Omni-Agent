@@ -87,8 +87,18 @@ export function canAccessConversation(
 
 export function canExecuteAgent(
   auth: { isAdmin?: boolean; user?: User | null; project?: { id: string } },
-  agent: { is_published: boolean; project_id?: string }
+  agent: { is_published: boolean; project_id?: string; owner_id?: string | null; scope?: string }
 ): boolean {
   if (hasAdminPrivileges(auth)) return true;
+  if (auth.user?.id && agent.owner_id && agent.owner_id === auth.user.id) return true;
+  if (agent.scope === 'user') return false;
   return agent.is_published;
+}
+
+export function canManageAgent(
+  auth: { isAdmin?: boolean; user?: User | null },
+  agent: { owner_id?: string | null; scope?: string }
+): boolean {
+  if (hasAdminPrivileges(auth)) return true;
+  return Boolean(auth.user?.id && agent.owner_id === auth.user.id && agent.scope === 'user');
 }

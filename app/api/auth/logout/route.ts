@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
           resource_id: user.id,
         });
       }
+      await DatabaseStore.logoutSession(token);
     } catch {
       //
     }

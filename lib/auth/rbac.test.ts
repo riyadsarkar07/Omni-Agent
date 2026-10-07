@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   canAccessConversation,
   canExecuteAgent,
+  canManageAgent,
   hasAdminPrivileges,
   isAdminUser,
   requireAdmin,
@@ -119,5 +120,23 @@ describe('conversation and agent access', () => {
       canExecuteAgent({ isAdmin: false, user: memberUser }, { is_published: true, project_id: 'other' }),
       true
     );
+  });
+
+  it('lets owners manage only their user-scoped agents', () => {
+    const owned = { owner_id: memberUser.id, scope: 'user' as const };
+    const platform = { owner_id: null, scope: 'platform' as const };
+    const otherUser = { owner_id: 'usr_other', scope: 'user' as const };
+    assert.equal(canManageAgent({ user: memberUser }, owned), true);
+    assert.equal(canManageAgent({ user: memberUser }, platform), false);
+    assert.equal(canManageAgent({ user: memberUser }, otherUser), false);
+    assert.equal(canManageAgent({ isAdmin: true, user: adminUser }, platform), true);
+    assert.equal(canManageAgent({ isAdmin: true }, owned), false);
+  });
+
+  it('lets owners execute their unpublished user agents', () => {
+    const owned = { is_published: false, owner_id: memberUser.id, scope: 'user' };
+    assert.equal(canExecuteAgent({ user: memberUser }, owned), true);
+    assert.equal(canExecuteAgent({ user: adminUser }, owned), false);
+    assert.equal(canExecuteAgent({ isAdmin: true, user: adminUser }, owned), true);
   });
 });

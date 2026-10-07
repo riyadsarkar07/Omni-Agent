@@ -21,7 +21,11 @@ export function classifyChatError(raw: string, status?: number): ClassifiedChatE
     description,
   });
 
-  if (status === 401 || status === 403 || /unauthorized|unauthenticated|forbidden|auth/.test(lower)) {
+  if (
+    status === 401 ||
+    status === 403 ||
+    /unauthorized|unauthenticated|forbidden|session expired|not authorized|account disabled/.test(lower)
+  ) {
     return make('auth', 'Authentication error', 'Your session expired or this project is not authorized. Sign in again and retry.');
   }
   if (status === 429 || /rate limit|too many requests|quota/.test(lower)) {

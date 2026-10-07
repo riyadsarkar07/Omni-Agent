@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
     );
   }
   const stats = await DatabaseStore.getUsageStats(projectId, userId);
+  const monthlyUsed = userId ? await DatabaseStore.countUserUsageThisMonth(userId) : 0;
+  const monthlyQuota = !isAdmin ? auth.user?.preferences?.monthly_request_quota ?? 500 : null;
 
   const redactedLogs = stats.recentLogs.map((log) => ({
     id: log.id,
@@ -64,6 +66,13 @@ export async function GET(req: NextRequest) {
         avgLatencyMs: stats.avgLatencyMs,
       },
       recentLogs: redactedLogs,
+      quota: monthlyQuota
+        ? {
+            monthlyUsed,
+            monthlyLimit: monthlyQuota,
+            remaining: Math.max(monthlyQuota - monthlyUsed, 0),
+          }
+        : undefined,
     })
   );
 }

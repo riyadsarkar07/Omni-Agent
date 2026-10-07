@@ -4,6 +4,7 @@ import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware'
 import { DatabaseStore } from '@/lib/db/store';
 import { AgentEngine } from '@/lib/agent-engine';
 import { canAccessConversation, canExecuteAgent, hasAdminPrivileges } from '@/lib/auth/rbac';
+import { enforceUserQuota } from '@/lib/auth/quota';
 
 const chatSchema = z.object({
   message: z.string().min(1, 'Message is required').max(10000, 'Message exceeds 10,000 character limit'),
@@ -22,6 +23,8 @@ export async function POST(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  const quotaDenied = await enforceUserQuota(auth.user, req);
+  if (quotaDenied) return quotaDenied;
 
   try {
     const rawBody = await req.json();
@@ -56,13 +59,17 @@ export async function POST(req: NextRequest) {
       targetAgent = await DatabaseStore.getAgent(agentId);
       if (!targetAgent || !canExecuteAgent(auth, targetAgent)) {
         return applyCorsHeaders(
-          NextResponse.json({ error: 'Agent not found in authenticated project' }, { status: 404 })
+          NextResponse.json({ error: 'Agent not found' }, { status: 404 })
         );
       }
     } else {
       // Default to first published agent of project
-      const agents = await DatabaseStore.listAgents(auth.project.id);
-      targetAgent = (hasAdminPrivileges(auth) ? agents : agents.filter((a) => a.is_published))[0] || null;
+      const agents = await DatabaseStore.listVisibleAgents(
+        auth.user?.id,
+        hasAdminPrivileges(auth),
+        hasAdminPrivileges(auth) ? auth.project.id : undefined
+      );
+      targetAgent = agents[0] || null;
     }
 
     if (!targetAgent) {
