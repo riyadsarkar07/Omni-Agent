@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
   const isAdmin = hasAdminPrivileges(auth);
   const projectId = isAdmin
     ? req.nextUrl.searchParams.get('projectId') || undefined
-    : auth.project.id;
-  const userId = isAdmin ? undefined : auth.user?.id;
+    : undefined;
+  const requestedUserId = req.nextUrl.searchParams.get('userId') || undefined;
+  const userId = isAdmin ? requestedUserId : auth.user?.id;
   if (!isAdmin && !userId) {
     return applyCorsHeaders(
       NextResponse.json({
@@ -36,19 +37,20 @@ export async function GET(req: NextRequest) {
   const stats = await DatabaseStore.getUsageStats(projectId, userId);
 
   const redactedLogs = stats.recentLogs.map((log) => ({
-        id: log.id,
-        projectId: log.project_id,
-        agentId: log.agent_id,
-        endpoint: log.endpoint,
-        model: log.model,
-        promptTokens: log.prompt_tokens,
-        candidateTokens: log.candidate_tokens,
-        totalTokens: log.total_tokens,
-        statusCode: log.status_code,
-        latencyMs: log.latency_ms,
-        errorMessage: isAdmin ? log.error_message : null,
-        createdAt: log.created_at,
-      }));
+    id: log.id,
+    project_id: log.project_id,
+    agent_id: log.agent_id,
+    user_id: isAdmin ? log.user_id || null : undefined,
+    endpoint: log.endpoint,
+    model: log.model,
+    prompt_tokens: log.prompt_tokens,
+    candidate_tokens: log.candidate_tokens,
+    total_tokens: log.total_tokens,
+    status_code: log.status_code,
+    latency_ms: log.latency_ms,
+    error_message: isAdmin ? log.error_message : null,
+    created_at: log.created_at,
+  }));
 
   return applyCorsHeaders(
     NextResponse.json({

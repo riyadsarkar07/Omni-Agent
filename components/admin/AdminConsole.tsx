@@ -18,6 +18,7 @@ import {
   UserDirectoryView,
   SystemHealthView,
   SystemAuditView,
+  ModelsCatalogView,
 } from '@/components/dashboard/admin';
 import {
   LayoutDashboard,
@@ -219,7 +220,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ currentUser }) => {
           {tab === 'dashboard' && <SystemOverviewView />}
           {tab === 'users' && <UserDirectoryView />}
           {tab === 'providers' && <ProvidersView />}
-          {tab === 'models' && <ProvidersView />}
+          {tab === 'models' && <ModelsCatalogView />}
           {tab === 'agents' && (
             <AgentsView
               agents={agents}

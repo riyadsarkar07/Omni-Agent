@@ -6,8 +6,9 @@ import { apiFetch } from '@/lib/auth/session-client';
 
 interface HealthPayload {
   status?: string;
-  database?: { adapter?: string; status?: string };
-  gemini_engine?: { status?: string };
+  database?: { adapter?: string; status?: string; configured?: boolean };
+  gemini_engine?: { status?: string; configured?: boolean; connectivity?: string };
+  providers?: { configured?: number; enabled?: number; connected?: number };
   missing_production_secrets?: string[];
 }
 
@@ -34,10 +35,12 @@ export const SystemHealthView: React.FC = () => {
   const services = health
     ? [
         { name: 'API', status: health.status || 'unknown' },
+        { name: 'Database config', status: health.database?.configured ? 'configured' : 'unconfigured' },
         { name: 'Database', status: health.database?.status || 'unknown' },
-        { name: 'Authentication', status: health.status === 'healthy' || health.status === 'degraded' ? 'connected' : 'unknown' },
-        { name: 'Gemini / Providers', status: health.gemini_engine?.status || 'unknown' },
-        { name: 'Streaming', status: health.gemini_engine?.status === 'ready' ? 'ready' : 'unconfigured' },
+        { name: 'Gemini config', status: health.gemini_engine?.configured ? 'configured' : 'unconfigured' },
+        { name: 'Gemini connectivity', status: health.gemini_engine?.connectivity || 'not-probed' },
+        { name: 'Enabled providers', status: String(health.providers?.enabled ?? 0) },
+        { name: 'Connected providers', status: String(health.providers?.connected ?? 0) },
       ]
     : [];
 

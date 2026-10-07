@@ -36,6 +36,7 @@ interface MemoryStore {
   users: StoredUser[];
   sessions: StoredSession[];
   projects: Project[];
+  projectMembers: Array<{ project_id: string; user_id: string; role: string }>;
   agents: Agent[];
   apiKeys: ApiKey[];
   conversations: Conversation[];
@@ -44,6 +45,7 @@ interface MemoryStore {
   auditLogs: AuditLog[];
   providers: AIProvider[];
   deletedProviderIds: string[];
+  platformSettings: { default_model: string | null; admin_contact_email: string | null; updated_at: string; updated_by: string | null };
 }
 
 const DEMO_API_KEY_RAW = 'ua_live_demo_development_key_2026';
@@ -249,6 +251,11 @@ if (!globalForStore.memoryStore) {
     users: [...initialUsers],
     sessions: [],
     projects: [...initialProjects],
+    projectMembers: initialUsers.map((u) => ({
+      project_id: 'proj_default_core',
+      user_id: u.id,
+      role: u.role === 'admin' ? 'owner' : 'member',
+    })),
     agents: [...initialAgents],
     apiKeys: [...initialApiKeys],
     conversations: [],
@@ -308,11 +315,26 @@ if (!globalForStore.memoryStore) {
       }
     ],
     deletedProviderIds: [],
+    platformSettings: {
+      default_model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+      admin_contact_email: getAdminEmail(),
+      updated_at: new Date().toISOString(),
+      updated_by: null,
+    },
   };
 }
 
 const memoryStore = globalForStore.memoryStore!;
 if (!memoryStore.deletedProviderIds) memoryStore.deletedProviderIds = [];
+if (!memoryStore.projectMembers) memoryStore.projectMembers = [];
+if (!memoryStore.platformSettings) {
+  memoryStore.platformSettings = {
+    default_model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    admin_contact_email: getAdminEmail(),
+    updated_at: new Date().toISOString(),
+    updated_by: null,
+  };
+}
 
 export const DEMO_PRESET_KEY = DEMO_API_KEY_RAW;
 
@@ -531,6 +553,11 @@ export class DatabaseStore {
     };
 
     memoryStore.users.push(newUser);
+    memoryStore.projectMembers.push({
+      project_id: 'proj_default_core',
+      user_id: newUser.id,
+      role: isSystemAdmin ? 'owner' : 'member',
+    });
 
     const token = `sess_${crypto.randomBytes(24).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 86400000 * 7).toISOString();
@@ -812,15 +839,146 @@ export class DatabaseStore {
     return this.updateUser(id, updates);
   }
 
+  static async countConversations(): Promise<number> {
+    if (supabase) {
+      try {
+        const { count, error } = await supabase.from('conversations').select('*', { count: 'exact', head: true });
+        if (!error && typeof count === 'number') return count;
+      } catch (err) {
+        console.error('Supabase countConversations error, falling back to memoryStore:', err);
+      }
+    }
+    return memoryStore.conversations.length;
+  }
+
+  static async listUserProjectIds(userId: string): Promise<string[]> {
+    if (!userId) return [];
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('project_members').select('project_id').eq('user_id', userId);
+        if (!error && data) {
+          return data.map((row) => String(row.project_id)).filter(Boolean);
+        }
+      } catch (err) {
+        console.error('Supabase listUserProjectIds error, falling back to memoryStore:', err);
+      }
+    }
+    return memoryStore.projectMembers.filter((m) => m.user_id === userId).map((m) => m.project_id);
+  }
+
+  static async listUserProjects(userId: string): Promise<Project[]> {
+    const memberIds = await this.listUserProjectIds(userId);
+    const all = await this.listProjects();
+    if (memberIds.length === 0) {
+      return all.filter((p) => p.id === 'proj_default_core' || p.slug === 'core-platform').slice(0, 1);
+    }
+    return all.filter((p) => memberIds.includes(p.id));
+  }
+
+  static async getUserPrimaryProject(userId: string): Promise<Project | null> {
+    const projects = await this.listUserProjects(userId);
+    return projects[0] || null;
+  }
+
+  static async addProjectMember(projectId: string, userId: string, role = 'member'): Promise<void> {
+    if (supabase) {
+      try {
+        await supabase.from('project_members').upsert({
+          project_id: projectId,
+          user_id: userId,
+          role,
+        });
+        return;
+      } catch (err) {
+        console.error('Supabase addProjectMember error, falling back to memoryStore:', err);
+      }
+    }
+    if (!memoryStore.projectMembers.some((m) => m.project_id === projectId && m.user_id === userId)) {
+      memoryStore.projectMembers.push({ project_id: projectId, user_id: userId, role });
+    }
+  }
+
+  static async getPlatformSettings(): Promise<{
+    default_model: string | null;
+    admin_contact_email: string | null;
+    updated_at: string | null;
+    updated_by: string | null;
+  }> {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('platform_settings').select('*').eq('id', 'global').maybeSingle();
+        if (!error && data) {
+          return {
+            default_model: data.default_model || null,
+            admin_contact_email: data.admin_contact_email || null,
+            updated_at: data.updated_at || null,
+            updated_by: data.updated_by || null,
+          };
+        }
+      } catch (err) {
+        console.error('Supabase getPlatformSettings error, falling back to memoryStore:', err);
+      }
+    }
+    return { ...memoryStore.platformSettings };
+  }
+
+  static async updatePlatformSettings(
+    updates: { default_model?: string | null; admin_contact_email?: string | null },
+    updatedBy?: string
+  ): Promise<{
+    default_model: string | null;
+    admin_contact_email: string | null;
+    updated_at: string | null;
+    updated_by: string | null;
+  }> {
+    const next = {
+      default_model: updates.default_model !== undefined ? updates.default_model : memoryStore.platformSettings.default_model,
+      admin_contact_email:
+        updates.admin_contact_email !== undefined
+          ? updates.admin_contact_email
+          : memoryStore.platformSettings.admin_contact_email,
+      updated_at: new Date().toISOString(),
+      updated_by: updatedBy || null,
+    };
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('platform_settings')
+          .upsert({
+            id: 'global',
+            default_model: next.default_model,
+            admin_contact_email: next.admin_contact_email,
+            updated_at: next.updated_at,
+            updated_by: next.updated_by,
+          })
+          .select()
+          .maybeSingle();
+        if (!error && data) {
+          memoryStore.platformSettings = {
+            default_model: data.default_model || null,
+            admin_contact_email: data.admin_contact_email || null,
+            updated_at: data.updated_at,
+            updated_by: data.updated_by || null,
+          };
+          return { ...memoryStore.platformSettings };
+        }
+      } catch (err) {
+        console.error('Supabase updatePlatformSettings error, falling back to memoryStore:', err);
+      }
+    }
+    memoryStore.platformSettings = next;
+    return { ...next };
+  }
+
   static async getPlatformOverview(): Promise<PlatformOverview> {
-    const [users, projects, agents, providers, usage] = await Promise.all([
+    const [users, projects, agents, providers, usage, conversationCount] = await Promise.all([
       this.listUsers(),
       this.listProjects(),
       this.listAgents(),
       this.listProviders(),
       this.getUsageStats(),
+      this.countConversations(),
     ]);
-    const conversations = memoryStore.conversations.length;
     return {
       totalUsers: users.length,
       activeUsers: users.filter((u) => u.status !== 'disabled').length,
@@ -833,9 +991,9 @@ export class DatabaseStore {
       enabledProviderCount: providers.filter((p) => p.enabled).length,
       agentCount: agents.length,
       projectCount: projects.length,
-      conversationCount: conversations,
+      conversationCount,
       databaseAdapter: this.isSupabaseConfigured() ? 'supabase-postgresql' : 'in-memory-preview-resilient',
-      databaseStatus: this.isSupabaseConfigured() ? 'connected' : 'connected',
+      databaseStatus: this.isSupabaseConfigured() ? 'connected' : 'unconfigured',
       geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
     };
   }
@@ -930,6 +1088,14 @@ export class DatabaseStore {
     };
     memoryStore.projects.unshift(newProj);
     return newProj;
+  }
+
+  static async createOwnedProject(data: Partial<Project>, ownerId?: string): Promise<Project> {
+    const project = await this.createProject(data);
+    if (ownerId) {
+      await this.addProjectMember(project.id, ownerId, 'owner');
+    }
+    return project;
   }
 
   static async updateProject(id: string, updates: Partial<Project>): Promise<Project | null> {
@@ -1329,6 +1495,21 @@ export class DatabaseStore {
   }
 
   static async listUserConversations(userId: string, projectId?: string): Promise<Conversation[]> {
+    if (!userId) return [];
+    if (supabase) {
+      try {
+        let query = supabase.from('conversations').select('*').contains('metadata', { owner_id: userId });
+        if (projectId) {
+          query = query.eq('project_id', projectId);
+        }
+        const { data, error } = await query.order('updated_at', { ascending: false });
+        if (!error && data) {
+          return data.map((c) => ({ ...c, message_count: 0 }));
+        }
+      } catch (err) {
+        console.error('Supabase listUserConversations error, falling back to memoryStore:', err);
+      }
+    }
     const all = await this.listConversations(projectId);
     return all.filter((c) => this.conversationOwnerId(c) === userId);
   }

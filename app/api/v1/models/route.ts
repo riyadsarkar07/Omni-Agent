@@ -12,7 +12,10 @@ export async function GET(req: NextRequest) {
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
   try {
-    const providers = await DatabaseStore.listProviders();
+    const [providers, settings] = await Promise.all([
+      DatabaseStore.listProviders(),
+      DatabaseStore.getPlatformSettings().catch(() => ({ default_model: null })),
+    ]);
     const models = providers
       .filter((p) => p.enabled)
       .flatMap((p) =>
@@ -29,7 +32,11 @@ export async function GET(req: NextRequest) {
       NextResponse.json({
         success: true,
         models,
-        defaultModel: providers.find((p) => p.isDefault)?.defaultModel || models[0]?.id || null,
+        defaultModel:
+          settings.default_model ||
+          providers.find((p) => p.isDefault)?.defaultModel ||
+          models[0]?.id ||
+          null,
       })
     );
   } catch (err: unknown) {

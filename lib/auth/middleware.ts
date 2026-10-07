@@ -5,6 +5,7 @@ import { hashApiKey, checkRateLimit } from './api-key';
 import { Project, ApiKey, User } from '../types';
 import { getAdminEmail, getAdminSecret, isProduction } from '../config';
 import { isUserActive } from './rbac';
+import { applyCorsHeaders as applyOriginCors } from './cors';
 
 export interface AuthContext {
   project: Project;
@@ -50,8 +51,6 @@ export async function authenticateApiRequest(
   if (!sessionUser && providedToken && !looksLikeApiKey) {
     sessionUser = await DatabaseStore.verifySessionToken(providedToken);
   }
-  const projects = await DatabaseStore.listProjects();
-  const defaultProject = projects[0];
 
   if (sessionUser) {
     if (!isUserActive(sessionUser)) {
@@ -67,10 +66,35 @@ export async function authenticateApiRequest(
     }
     const isConfiguredAdmin =
       Boolean(configuredAdminEmail) && sessionUser.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
+    const isAdmin = sessionUser.role === 'admin' || isConfiguredAdmin;
+    const sessionRate = checkRateLimit(`session:${sessionUser.id}`, isAdmin ? 300 : 60);
+    if (!sessionRate.allowed) {
+      return {
+        errorResponse: NextResponse.json(
+          {
+            error: 'Too Many Requests',
+            message: 'Session rate limit exceeded.',
+            retryAfterSeconds: sessionRate.resetSeconds,
+          },
+          {
+            status: 429,
+            headers: {
+              'X-RateLimit-Limit': isAdmin ? '300' : '60',
+              'X-RateLimit-Remaining': '0',
+              'X-RateLimit-Reset': String(sessionRate.resetSeconds),
+              'Retry-After': String(sessionRate.resetSeconds),
+            },
+          }
+        ),
+      };
+    }
+    const project = isAdmin
+      ? (await DatabaseStore.listProjects())[0]
+      : await DatabaseStore.getUserPrimaryProject(sessionUser.id);
     DatabaseStore.touchUserActivity(sessionUser.id).catch(() => {});
     return {
       auth: {
-        project: defaultProject || {
+        project: project || {
           id: 'proj_default_core',
           name: 'Universal Core Platform',
           slug: 'core-platform',
@@ -80,7 +104,7 @@ export async function authenticateApiRequest(
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
-        isAdmin: sessionUser.role === 'admin' || isConfiguredAdmin,
+        isAdmin,
         user: sessionUser,
       },
     };
@@ -194,9 +218,6 @@ export async function authenticateApiRequest(
   };
 }
 
-export function applyCorsHeaders(response: NextResponse): NextResponse {
-  response.headers.set('Access-Control-Allow-Origin', '*');
-  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-internal-admin');
-  return response;
+export function applyCorsHeaders(response: NextResponse, req?: NextRequest): NextResponse {
+  return applyOriginCors(response, req);
 }

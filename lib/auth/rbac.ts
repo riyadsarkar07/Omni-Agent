@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { User } from '../types';
+import { applyCorsHeaders } from './cors';
 
 export type PlatformRole = 'admin' | 'user';
 
@@ -8,11 +9,8 @@ interface SessionAuth {
   user?: User | null;
 }
 
-function withCors(response: NextResponse): NextResponse {
-  response.headers.set('Access-Control-Allow-Origin', '*');
-  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-internal-admin');
-  return response;
+function withCors(response: NextResponse, req?: NextRequest): NextResponse {
+  return applyCorsHeaders(response, req);
 }
 
 export function isAdminUser(user?: Pick<User, 'role'> | null): boolean {
@@ -89,9 +87,8 @@ export function canAccessConversation(
 
 export function canExecuteAgent(
   auth: { isAdmin?: boolean; user?: User | null; project?: { id: string } },
-  agent: { is_published: boolean; project_id: string }
+  agent: { is_published: boolean; project_id?: string }
 ): boolean {
   if (hasAdminPrivileges(auth)) return true;
-  if (auth.project?.id && agent.project_id !== auth.project.id) return false;
   return agent.is_published;
 }

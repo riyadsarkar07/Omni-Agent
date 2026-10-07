@@ -35,6 +35,7 @@ export const SystemOverviewView: React.FC = () => {
         { title: 'Enabled Providers', value: `${overview.enabledProviderCount}/${overview.providerCount}`, icon: Server, color: 'text-cyan-400' },
         { title: 'Agents', value: String(overview.agentCount), icon: Bot, color: 'text-indigo-400' },
         { title: 'Projects', value: String(overview.projectCount), icon: FolderGit2, color: 'text-emerald-400' },
+        { title: 'Conversations', value: String(overview.conversationCount), icon: Activity, color: 'text-cyan-400' },
       ]
     : [];
 

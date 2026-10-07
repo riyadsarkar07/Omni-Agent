@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
   const isAdmin = hasAdminPrivileges(auth);
-  const projectId = req.nextUrl.searchParams.get('projectId') || (isAdmin ? undefined : auth.project.id);
+  const projectId = req.nextUrl.searchParams.get('projectId') || undefined;
   const agents = await DatabaseStore.listAgents(projectId);
   const visible = isAdmin ? agents : agents.filter((a) => a.is_published);
 

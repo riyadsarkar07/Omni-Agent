@@ -1,18 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Settings,
   Database,
   CheckCircle2,
-  AlertTriangle,
   Copy,
   Check,
-  ShieldCheck,
   Server,
-  KeyRound,
   FileCode2,
 } from 'lucide-react';
+import { apiFetch } from '@/lib/auth/session-client';
 
 interface SettingsViewProps {
   isSupabaseConnected: boolean;
@@ -20,8 +18,26 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ isSupabaseConnected }) => {
   const [copiedMigration, setCopiedMigration] = useState(false);
-  const [defaultModel, setDefaultModel] = useState('gemini-3.5-flash');
+  const [defaultModel, setDefaultModel] = useState('gemini-3.8-flash');
+  const [adminContactEmail, setAdminContactEmail] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+    apiFetch('/api/v1/admin/settings')
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || ignore) return;
+        if (data.settings?.default_model) setDefaultModel(data.settings.default_model);
+        if (data.settings?.admin_contact_email) setAdminContactEmail(data.settings.admin_contact_email);
+      })
+      .catch(() => {});
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const sampleMigrationSql = `-- Universal AI Agent Platform Supabase Migration
 -- Run in Supabase SQL Editor:
@@ -47,10 +63,29 @@ CREATE TABLE IF NOT EXISTS public.projects (
     setTimeout(() => setCopiedMigration(false), 2000);
   };
 
-  const handleSaveDefaults = (e: React.FormEvent) => {
+  const handleSaveDefaults = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+    setSaving(true);
+    setSaveError(null);
+    setSavedSuccess(false);
+    try {
+      const res = await apiFetch('/api/v1/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          default_model: defaultModel,
+          admin_contact_email: adminContactEmail || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Failed to save settings');
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (err: unknown) {
+      setSaveError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -193,7 +228,9 @@ CREATE TABLE IF NOT EXISTS public.projects (
               <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Admin Contact Email</label>
               <input
                 type="email"
-                defaultValue="admin@omniagent.io"
+                value={adminContactEmail}
+                onChange={(e) => setAdminContactEmail(e.target.value)}
+                placeholder="admin@your-domain.example"
                 className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/20"
               />
             </div>
@@ -204,13 +241,16 @@ CREATE TABLE IF NOT EXISTS public.projects (
               <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4" /> Preferences saved
               </span>
+            ) : saveError ? (
+              <span className="text-xs text-rose-400 font-semibold">{saveError}</span>
             ) : <span />}
 
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all cursor-pointer shadow-md shadow-cyan-500/20"
+              disabled={saving}
+              className="px-5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all cursor-pointer shadow-md shadow-cyan-500/20 disabled:opacity-60"
             >
-              Save Preferences
+              {saving ? 'Saving...' : 'Save Preferences'}
             </button>
           </div>
         </form>

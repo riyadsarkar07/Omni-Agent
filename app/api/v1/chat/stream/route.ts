@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { authenticateApiRequest } from '@/lib/auth/middleware';
+import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
+import { allowedCorsOrigin } from '@/lib/auth/cors';
 import { DatabaseStore } from '@/lib/db/store';
 import { AgentEngine } from '@/lib/agent-engine';
 import { canAccessConversation, canExecuteAgent, hasAdminPrivileges } from '@/lib/auth/rbac';
@@ -14,15 +15,8 @@ const chatStreamSchema = z.object({
   thinkingLevel: z.enum(['HIGH', 'LOW', 'MINIMAL', 'OFF']).optional(),
 });
 
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key, x-internal-admin',
-    },
-  });
+export async function OPTIONS(req: NextRequest) {
+  return applyCorsHeaders(new NextResponse(null, { status: 204 }), req);
 }
 
 export async function POST(req: NextRequest) {
@@ -85,14 +79,18 @@ export async function POST(req: NextRequest) {
       overrideThinkingLevel: thinkingLevel,
     });
 
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
+    const origin = allowedCorsOrigin(req.headers.get('origin'));
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    };
+    if (origin) {
+      headers['Access-Control-Allow-Origin'] = origin;
+      headers['Access-Control-Allow-Credentials'] = 'true';
+      headers.Vary = 'Origin';
+    }
+    return new Response(stream, { headers });
   } catch (err: unknown) {
     return NextResponse.json(
       { error: 'Streaming Execution Failed', message: (err as Error).message },

@@ -115,5 +115,9 @@ describe('conversation and agent access', () => {
       canExecuteAgent({ isAdmin: false, project: { id: 'proj_default_core' } }, unpublished),
       false
     );
+    assert.equal(
+      canExecuteAgent({ isAdmin: false, user: memberUser }, { is_published: true, project_id: 'other' }),
+      true
+    );
   });
 });

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { getAdminEmail } from '@/lib/config';
-import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
+import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
 
 const createProjectSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(60),
@@ -12,17 +12,21 @@ const createProjectSchema = z.object({
   rate_limit_rpm: z.number().int().min(10).max(1000).default(60),
 });
 
-export async function OPTIONS() {
-  return applyCorsHeaders(new NextResponse(null, { status: 204 }));
+export async function OPTIONS(req: NextRequest) {
+  return applyCorsHeaders(new NextResponse(null, { status: 204 }), req);
 }
 
 export async function GET(req: NextRequest) {
   const { auth, errorResponse } = await authenticateApiRequest(req);
-  if (errorResponse) return applyCorsHeaders(errorResponse);
-  if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
+  if (errorResponse) return applyCorsHeaders(errorResponse, req);
+  if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }), req);
 
-  const projects = await DatabaseStore.listProjects();
-  return applyCorsHeaders(NextResponse.json({ projects, total: projects.length }));
+  const projects = hasAdminPrivileges(auth)
+    ? await DatabaseStore.listProjects()
+    : auth.user?.id
+      ? await DatabaseStore.listUserProjects(auth.user.id)
+      : [auth.project];
+  return applyCorsHeaders(NextResponse.json({ projects, total: projects.length }), req);
 }
 
 export async function POST(req: NextRequest) {
@@ -45,12 +49,12 @@ export async function POST(req: NextRequest) {
     const { name, slug, description, rate_limit_rpm } = parseResult.data;
     const computedSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-    const newProject = await DatabaseStore.createProject({
+    const newProject = await DatabaseStore.createOwnedProject({
       name,
       slug: computedSlug,
       description,
       rate_limit_rpm,
-    });
+    }, auth.user?.id);
 
     await DatabaseStore.logAudit({
       project_id: newProject.id,

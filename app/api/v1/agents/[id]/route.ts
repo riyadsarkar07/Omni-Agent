@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const agent = await DatabaseStore.getAgent(id);
 
   const isAdmin = hasAdminPrivileges(auth);
-  if (!agent || (agent.project_id !== auth.project.id && !isAdmin)) {
+  if (!agent) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
   if (!isAdmin && !agent.is_published) {

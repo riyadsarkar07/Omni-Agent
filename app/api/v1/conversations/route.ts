@@ -14,9 +14,12 @@ export async function GET(req: NextRequest) {
 
   const agentId = req.nextUrl.searchParams.get('agentId') || undefined;
   const isAdmin = hasAdminPrivileges(auth);
+  const projectId = isAdmin
+    ? req.nextUrl.searchParams.get('projectId') || undefined
+    : undefined;
   const conversations = isAdmin
-    ? await DatabaseStore.listConversations(auth.project.id, agentId)
-    : await DatabaseStore.listUserConversations(auth.user?.id || '', auth.project.id);
+    ? await DatabaseStore.listConversations(projectId, agentId)
+    : await DatabaseStore.listUserConversations(auth.user?.id || '');
 
   const scoped = agentId && !isAdmin
     ? conversations.filter((c) => c.agent_id === agentId)
