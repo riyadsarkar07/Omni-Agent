@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { hasAdminPrivileges } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -11,11 +12,12 @@ export async function GET(req: NextRequest) {
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
-  const projectId = auth.isAdmin
+  const isAdmin = hasAdminPrivileges(auth);
+  const projectId = isAdmin
     ? req.nextUrl.searchParams.get('projectId') || undefined
     : auth.project.id;
-  const userId = auth.isAdmin ? undefined : auth.user?.id;
-  if (!auth.isAdmin && !userId) {
+  const userId = isAdmin ? undefined : auth.user?.id;
+  if (!isAdmin && !userId) {
     return applyCorsHeaders(
       NextResponse.json({
         summary: {
@@ -44,7 +46,7 @@ export async function GET(req: NextRequest) {
         totalTokens: log.total_tokens,
         statusCode: log.status_code,
         latencyMs: log.latency_ms,
-        errorMessage: auth.isAdmin ? log.error_message : null,
+        errorMessage: isAdmin ? log.error_message : null,
         createdAt: log.created_at,
       }));
 

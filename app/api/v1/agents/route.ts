@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
-import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
+import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
 
 const createAgentSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(80),
@@ -32,9 +32,10 @@ export async function GET(req: NextRequest) {
   if (errorResponse) return applyCorsHeaders(errorResponse);
   if (!auth) return applyCorsHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
-  const projectId = req.nextUrl.searchParams.get('projectId') || (auth.isAdmin ? undefined : auth.project.id);
+  const isAdmin = hasAdminPrivileges(auth);
+  const projectId = req.nextUrl.searchParams.get('projectId') || (isAdmin ? undefined : auth.project.id);
   const agents = await DatabaseStore.listAgents(projectId);
-  const visible = auth.isAdmin ? agents : agents.filter((a) => a.is_published);
+  const visible = isAdmin ? agents : agents.filter((a) => a.is_published);
 
   return applyCorsHeaders(NextResponse.json({ agents: visible, total: visible.length }));
 }

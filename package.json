@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test lib/auth/*.test.ts",
     "clean": "next clean"
   },
   "dependencies": {

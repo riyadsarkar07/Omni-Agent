@@ -5,7 +5,7 @@ import { ModelRouter } from '@/lib/providers/router';
 import { getProviderTypeOption, protocolFromKind, isValidHttpUrl, PROVIDER_TYPE_OPTIONS } from '@/lib/providers/catalog';
 import { ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
-import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
+import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       defaultModel: modelId,
       models,
       capabilities: body.capabilities || option.defaultCapabilities,
-      isDefault: Boolean(body.isDefault) && auth.isAdmin,
+      isDefault: Boolean(body.isDefault) && hasAdminPrivileges(auth),
       scope,
       ownerId: undefined,
       metadata,

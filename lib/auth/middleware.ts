@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { DatabaseStore, DEMO_PRESET_KEY } from '../db/store';
 import { hashApiKey, checkRateLimit } from './api-key';
 import { Project, ApiKey, User } from '../types';
@@ -10,6 +11,23 @@ export interface AuthContext {
   apiKey?: ApiKey;
   isAdmin: boolean;
   user?: User;
+}
+
+function timingSafeEqualString(left: string, right: string): boolean {
+  const leftBuf = Buffer.from(left);
+  const rightBuf = Buffer.from(right);
+  if (leftBuf.length !== rightBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuf, rightBuf);
+}
+
+export function verifyEmergencyAdminSecret(providedSecret: string | null | undefined): boolean {
+  const adminSecret = getAdminSecret();
+  if (!adminSecret || !providedSecret) {
+    return false;
+  }
+  return timingSafeEqualString(providedSecret, adminSecret);
 }
 
 export async function authenticateApiRequest(
@@ -24,11 +42,8 @@ export async function authenticateApiRequest(
     providedToken = req.headers.get('x-api-key');
   }
 
-  // 2. Check if request is authenticated via session cookie, bearer session, or admin secret
   const cookieToken = req.cookies.get('omniagent_session')?.value;
   const looksLikeApiKey = Boolean(providedToken && /^(ua_live_|ua_test_)/.test(providedToken));
-  const adminSecret = getAdminSecret();
-  const providedAdminSecret = req.headers.get('x-admin-secret');
   const configuredAdminEmail = getAdminEmail();
 
   let sessionUser = cookieToken ? await DatabaseStore.verifySessionToken(cookieToken) : null;
@@ -67,15 +82,6 @@ export async function authenticateApiRequest(
         },
         isAdmin: sessionUser.role === 'admin' || isConfiguredAdmin,
         user: sessionUser,
-      },
-    };
-  }
-
-  if (adminSecret && providedAdminSecret && providedAdminSecret === adminSecret && defaultProject) {
-    return {
-      auth: {
-        project: defaultProject,
-        isAdmin: true,
       },
     };
   }

@@ -27,6 +27,13 @@ export function isUserActive(user?: Pick<User, 'status'> | null): boolean {
   return !user?.status || user.status === 'active';
 }
 
+export function hasAdminPrivileges(auth?: SessionAuth | null): boolean {
+  if (!auth?.user || !isUserActive(auth.user)) {
+    return false;
+  }
+  return Boolean(auth.isAdmin) && isAdminUser(auth.user);
+}
+
 export function unauthorizedResponse(message = 'Authentication required'): NextResponse {
   return withCors(NextResponse.json({ error: 'Unauthorized', message }, { status: 401 }));
 }
@@ -37,7 +44,15 @@ export function forbiddenResponse(message = 'Admin access required'): NextRespon
 
 export function requireAdmin(auth?: SessionAuth | null): NextResponse | null {
   if (!auth) return unauthorizedResponse();
-  if (!auth.isAdmin) return forbiddenResponse('Admin access required');
+  if (!auth.user) {
+    return unauthorizedResponse('A signed-in admin session is required');
+  }
+  if (!isUserActive(auth.user)) {
+    return forbiddenResponse('Account is disabled');
+  }
+  if (!hasAdminPrivileges(auth)) {
+    return forbiddenResponse('Admin access required');
+  }
   return null;
 }
 
@@ -63,20 +78,20 @@ export function conversationOwnerId(metadata?: Record<string, unknown>): string 
 }
 
 export function canAccessConversation(
-  auth: { isAdmin?: boolean; user?: { id: string } | null; project?: { id: string } },
+  auth: { isAdmin?: boolean; user?: User | null; project?: { id: string } },
   conversation: { project_id: string; metadata?: Record<string, unknown> }
 ): boolean {
-  if (auth.isAdmin) return true;
+  if (hasAdminPrivileges(auth)) return true;
   const ownerId = conversationOwnerId(conversation.metadata);
   if (auth.user?.id) return ownerId === auth.user.id;
   return Boolean(auth.project?.id) && conversation.project_id === auth.project!.id && !ownerId;
 }
 
 export function canExecuteAgent(
-  auth: { isAdmin?: boolean; project?: { id: string } },
+  auth: { isAdmin?: boolean; user?: User | null; project?: { id: string } },
   agent: { is_published: boolean; project_id: string }
 ): boolean {
-  if (auth.isAdmin) return true;
+  if (hasAdminPrivileges(auth)) return true;
   if (auth.project?.id && agent.project_id !== auth.project.id) return false;
   return agent.is_published;
 }

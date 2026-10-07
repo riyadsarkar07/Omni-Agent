@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { getAdminEmail } from '@/lib/config';
-import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
+import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -19,7 +19,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const keys = await DatabaseStore.listApiKeys();
   const existingKey = keys.find((k) => k.id === id);
 
-  if (!existingKey || (existingKey.project_id !== auth.project.id && !auth.isAdmin)) {
+  if (!existingKey || (existingKey.project_id !== auth.project.id && !hasAdminPrivileges(auth))) {
     return applyCorsHeaders(NextResponse.json({ error: 'API Key not found' }, { status: 404 }));
   }
 

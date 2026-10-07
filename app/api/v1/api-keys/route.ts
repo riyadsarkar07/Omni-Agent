@@ -4,7 +4,7 @@ import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware'
 import { generateApiKey } from '@/lib/auth/api-key';
 import { DatabaseStore } from '@/lib/db/store';
 import { getAdminEmail } from '@/lib/config';
-import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
+import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
 
 const createKeySchema = z.object({
   name: z.string().min(2, 'Key name must be at least 2 characters').max(60),
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const denied = requireAdmin(auth);
   if (denied) return denied;
 
-  const projectId = req.nextUrl.searchParams.get('projectId') || (auth.isAdmin ? undefined : auth.project.id);
+  const projectId = req.nextUrl.searchParams.get('projectId') || (hasAdminPrivileges(auth) ? undefined : auth.project.id);
   const keys = await DatabaseStore.listApiKeys(projectId);
 
   // Note: key_hash is stripped for security; rawKey is never returned

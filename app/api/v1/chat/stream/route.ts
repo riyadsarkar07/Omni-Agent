@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticateApiRequest } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { AgentEngine } from '@/lib/agent-engine';
-import { canAccessConversation, canExecuteAgent } from '@/lib/auth/rbac';
+import { canAccessConversation, canExecuteAgent, hasAdminPrivileges } from '@/lib/auth/rbac';
 
 const chatStreamSchema = z.object({
   message: z.string().min(1, 'Message is required').max(10000),
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       }
     } else {
       const agents = await DatabaseStore.listAgents(auth.project.id);
-      targetAgent = (auth.isAdmin ? agents : agents.filter((a) => a.is_published))[0] || null;
+      targetAgent = (hasAdminPrivileges(auth) ? agents : agents.filter((a) => a.is_published))[0] || null;
     }
 
     if (!targetAgent) {

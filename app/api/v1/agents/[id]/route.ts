@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
-import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
+import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
 
 const updateAgentSchema = z.object({
   name: z.string().min(2).max(80).optional(),
@@ -34,10 +34,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const agent = await DatabaseStore.getAgent(id);
 
-  if (!agent || (agent.project_id !== auth.project.id && !auth.isAdmin)) {
+  const isAdmin = hasAdminPrivileges(auth);
+  if (!agent || (agent.project_id !== auth.project.id && !isAdmin)) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
-  if (!auth.isAdmin && !agent.is_published) {
+  if (!isAdmin && !agent.is_published) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
 
@@ -54,7 +55,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const existingAgent = await DatabaseStore.getAgent(id);
 
-  if (!existingAgent || (existingAgent.project_id !== auth.project.id && !auth.isAdmin)) {
+  if (!existingAgent || (existingAgent.project_id !== auth.project.id && !hasAdminPrivileges(auth))) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
 
@@ -103,7 +104,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const existingAgent = await DatabaseStore.getAgent(id);
 
-  if (!existingAgent || (existingAgent.project_id !== auth.project.id && !auth.isAdmin)) {
+  if (!existingAgent || (existingAgent.project_id !== auth.project.id && !hasAdminPrivileges(auth))) {
     return applyCorsHeaders(NextResponse.json({ error: 'Agent not found' }, { status: 404 }));
   }
 
