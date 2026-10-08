@@ -83,6 +83,7 @@ export async function POST(req: NextRequest) {
       userId: auth.user?.id,
       overrideModel,
       overrideThinkingLevel: thinkingLevel,
+      useKnowledge: true,
     });
 
     const origin = allowedCorsOrigin(req.headers.get('origin'));

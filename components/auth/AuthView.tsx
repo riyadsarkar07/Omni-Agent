@@ -16,6 +16,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -122,17 +123,21 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
           </div>
 
           <AnimatePresence mode="wait">
-            {error && (
+            {(error || info) && (
               <motion.div
                 initial={{ opacity: 0, y: -10, height: 0 }}
                 animate={{ opacity: 1, y: 0, height: 'auto' }}
                 exit={{ opacity: 0, y: -10, height: 0 }}
-                className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-start gap-3"
+                className={`mb-6 p-4 rounded-xl text-sm flex items-start gap-3 ${
+                  error
+                    ? 'bg-rose-500/10 border border-rose-500/20 text-rose-400'
+                    : 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-300'
+                }`}
               >
-                <div className="p-1 bg-rose-500/20 rounded-full shrink-0">
-                  <div className="w-2 h-2 rounded-full bg-rose-500" />
+                <div className={`p-1 rounded-full shrink-0 ${error ? 'bg-rose-500/20' : 'bg-cyan-500/20'}`}>
+                  <div className={`w-2 h-2 rounded-full ${error ? 'bg-rose-500' : 'bg-cyan-400'}`} />
                 </div>
-                <span>{error}</span>
+                <span>{error || info}</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -181,7 +186,25 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess }) => {
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wide">Password</label>
                 {!isRegister && (
-                  <button type="button" className="text-xs text-cyan-400 hover:text-cyan-300 font-medium">
+                  <button
+                    type="button"
+                    className="text-xs text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
+                    onClick={async () => {
+                      setError(null);
+                      setInfo(null);
+                      if (!email.trim()) {
+                        setError('Enter your email first');
+                        return;
+                      }
+                      const res = await fetch('/api/auth/forgot-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: email.trim() }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      setInfo(data.message || 'If that email exists, a password reset link has been sent.');
+                    }}
+                  >
                     Forgot password?
                   </button>
                 )}

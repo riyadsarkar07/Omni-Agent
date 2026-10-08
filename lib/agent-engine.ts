@@ -13,6 +13,7 @@ export interface ChatEngineOptions {
   userId?: string;
   overrideThinkingLevel?: 'HIGH' | 'LOW' | 'MINIMAL' | 'OFF';
   overrideModel?: string;
+  useKnowledge?: boolean;
 }
 
 export interface ChatEngineResult {
@@ -31,18 +32,41 @@ export interface ChatEngineResult {
 }
 
 export class AgentEngine {
-  private static async resolveSystemInstruction(agent: Agent, userId?: string): Promise<string> {
-    const base = agent.system_instructions || '';
-    if (!userId || agent.memory_enabled === false) return base;
+  private static async resolveSystemInstruction(
+    agent: Agent,
+    userId?: string,
+    message?: string,
+    useKnowledge = false
+  ): Promise<string> {
+    let instruction = agent.system_instructions || '';
+    if (!userId) return instruction;
+
     const owner = await DatabaseStore.getUserById(userId);
-    if (owner?.preferences?.memory_enabled === false) return base;
-    const memories = await DatabaseStore.listUserMemories(userId);
-    if (!memories.length) return base;
-    const notes = memories
-      .slice(0, 12)
-      .map((m) => `- ${m.content}`)
-      .join('\n');
-    return `${base}\n\nUser memory notes (private to this user):\n${notes}`;
+    if (agent.memory_enabled !== false && owner?.preferences?.memory_enabled !== false) {
+      const memories = await DatabaseStore.listUserMemories(userId);
+      if (memories.length) {
+        const notes = memories
+          .slice(0, 12)
+          .map((m) => `- ${m.content}`)
+          .join('\n');
+        instruction = `${instruction}\n\nUser memory notes (private to this user only; never reveal another user's memory):\n${notes}`;
+      }
+    }
+
+    if (useKnowledge && message) {
+      try {
+        const { retrieveKnowledgeContext } = await import('./knowledge/index-file');
+        const retrieved = await retrieveKnowledgeContext(userId, message, 6);
+        if (retrieved.hits > 0 && retrieved.context) {
+          instruction = `${instruction}\n\nRetrieved private documents for this user only. Use them to answer. If they are insufficient, say so and do not invent facts.\n${retrieved.context}`;
+        } else if (/summar(y|ize)|compare|search|document|file|pdf|docx|markdown/i.test(message)) {
+          instruction = `${instruction}\n\nNo matching private documents were retrieved for this user. Do not invent document contents.`;
+        }
+      } catch {
+        // Keep chat working if retrieval is unavailable.
+      }
+    }
+    return instruction;
   }
 
   /**
@@ -51,7 +75,12 @@ export class AgentEngine {
   static async executeChat(options: ChatEngineOptions): Promise<ChatEngineResult> {
     const startTime = Date.now();
     const { agent, message, projectId, apiKeyId } = options;
-    const systemInstruction = await AgentEngine.resolveSystemInstruction(agent, options.userId);
+    const systemInstruction = await AgentEngine.resolveSystemInstruction(
+      agent,
+      options.userId,
+      message,
+      options.useKnowledge === true
+    );
 
     // Resolve or create conversation
     const conversation = await DatabaseStore.getOrCreateConversation(
@@ -378,7 +407,12 @@ export class AgentEngine {
     const encoder = new TextEncoder();
     const startTime = Date.now();
     const { agent, message, projectId, apiKeyId } = options;
-    const systemInstruction = await AgentEngine.resolveSystemInstruction(agent, options.userId);
+    const systemInstruction = await AgentEngine.resolveSystemInstruction(
+      agent,
+      options.userId,
+      message,
+      options.useKnowledge === true
+    );
 
     const conversation = await DatabaseStore.getOrCreateConversation(
       options.conversationId,

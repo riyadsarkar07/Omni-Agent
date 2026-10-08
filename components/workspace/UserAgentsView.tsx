@@ -107,10 +107,12 @@ export const UserAgentsView: React.FC<UserAgentsViewProps> = ({ agents, currentU
         email: email.trim(),
       }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       window.alert(data.error || 'Share failed');
+      return;
     }
+    window.alert(`Shared read-only with ${email.trim()}`);
   };
 
   const renderCard = (agent: Agent, mine: boolean) => (

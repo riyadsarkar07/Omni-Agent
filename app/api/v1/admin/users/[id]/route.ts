@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { actorEmail, requireAdmin } from '@/lib/auth/rbac';
+import { LAST_ADMIN_ERROR, wouldRemoveActiveAdmin } from '@/lib/auth/users-sync';
 
 const updateUserSchema = z.object({
   role: z.enum(['admin', 'developer', 'viewer']).optional(),
@@ -50,13 +51,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       );
     }
 
+    if (wouldRemoveActiveAdmin(existing, parse.data)) {
+      const activeAdmins = await DatabaseStore.countActiveAdmins();
+      if (activeAdmins <= 1) {
+        return applyCorsHeaders(
+          NextResponse.json({ error: LAST_ADMIN_ERROR, message: LAST_ADMIN_ERROR }, { status: 409 })
+        );
+      }
+    }
+
     if (existing.id === auth.user?.id && parse.data.status === 'disabled') {
       return applyCorsHeaders(
         NextResponse.json({ error: 'You cannot disable your own account' }, { status: 400 })
       );
     }
 
-    const updated = await DatabaseStore.updateUser(id, parse.data);
+    const updated = await DatabaseStore.updateUser(id, parse.data, { actorId: auth.user?.id, enforceLastAdmin: true });
     await DatabaseStore.logAudit({
       project_id: auth.project.id,
       user_email: actorEmail(auth),
@@ -74,8 +84,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     return applyCorsHeaders(NextResponse.json({ user: updated }));
   } catch (err: unknown) {
+    const message = (err as Error).message;
+    const lastAdmin = (err as Error & { code?: string }).code === 'LAST_ADMIN' || message === LAST_ADMIN_ERROR;
     return applyCorsHeaders(
-      NextResponse.json({ error: 'Failed to update user', message: (err as Error).message }, { status: 500 })
+      NextResponse.json(
+        { error: lastAdmin ? LAST_ADMIN_ERROR : 'Failed to update user', message: lastAdmin ? LAST_ADMIN_ERROR : message },
+        { status: lastAdmin ? 409 : 500 }
+      )
     );
   }
 }

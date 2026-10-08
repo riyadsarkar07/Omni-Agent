@@ -42,6 +42,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const denied = requireSessionUser(auth);
   if (denied) return denied;
   const { id } = await params;
+  const existing = await DatabaseStore.getUserFile(id, auth!.user!.id);
+  if (!existing) {
+    return applyCorsHeaders(NextResponse.json({ error: 'File not found' }, { status: 404 }));
+  }
   const deleted = await DatabaseStore.deleteUserFile(auth!.user!.id, id);
   if (!deleted) {
     return applyCorsHeaders(NextResponse.json({ error: 'File not found' }, { status: 404 }));

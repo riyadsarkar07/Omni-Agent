@@ -24,6 +24,7 @@ export interface User {
   status?: UserStatus;
   last_active_at?: string | null;
   created_at: string;
+  email_confirmed?: boolean;
   preferences?: UserPreferences;
 }
 
@@ -44,6 +45,52 @@ export interface UserFile {
   size_bytes: number;
   storage_path?: string;
   created_at: string;
+  indexed?: boolean;
+  chunk_count?: number;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  user_id: string;
+  file_id: string;
+  original_name: string;
+  mime_type: string;
+  status: 'pending' | 'ready' | 'unsupported' | 'failed';
+  chunk_count: number;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  document_id: string;
+  user_id: string;
+  file_id: string;
+  chunk_index: number;
+  content: string;
+  embedding?: number[] | null;
+  embedding_model?: string | null;
+  created_at: string;
+}
+
+export interface KnowledgeHit {
+  chunk_id: string;
+  document_id: string;
+  file_id: string;
+  user_id: string;
+  original_name: string;
+  content: string;
+  score: number;
+}
+
+export interface AuthSessionRecord {
+  id: string;
+  user_id: string;
+  created_at: string;
+  expires_at: string;
+  last_active_at?: string | null;
+  current?: boolean;
 }
 
 export type ShareResourceType = 'conversation' | 'agent';

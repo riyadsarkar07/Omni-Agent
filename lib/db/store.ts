@@ -1,4 +1,4 @@
-import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview, UserPreferences, UserMemory, UserFile, ResourceShare, ShareResourceType, SharePermission } from '../types';
+import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview, UserPreferences, UserMemory, UserFile, ResourceShare, ShareResourceType, SharePermission, KnowledgeChunk, KnowledgeDocument, KnowledgeHit, AuthSessionRecord } from '../types';
 import { AIProvider } from '../providers/types';
 import { hashApiKey } from '../auth/api-key';
 import { getAdminEmail, getAdminPassword, isProduction } from '../config';
@@ -6,6 +6,15 @@ import { encryptProviderSecret } from '../providers/secrets';
 import { kindFromProtocol, slugifyProviderId } from '../providers/catalog';
 import { mapRowToProvider, toDbProviderRow, toPublicProvider } from '../providers/mapping';
 import { getSupabaseAdmin, getSupabaseAuth, isSupabaseConfigured as supabaseConfigured, DEFAULT_PROJECT_ID, DEFAULT_PROJECT_SLUG } from './supabase';
+import {
+  AuthDirectoryUser,
+  LAST_ADMIN_ERROR,
+  countActiveAdmins,
+  matchesUserQuery,
+  mergeAuthUsersWithProfiles,
+  uniqueUserCount,
+  wouldRemoveActiveAdmin,
+} from '../auth/users-sync';
 import crypto from 'crypto';
 
 function db() {
@@ -24,9 +33,11 @@ interface StoredUser extends User {
 }
 
 interface StoredSession {
+  id: string;
   token: string;
   user_id: string;
   expires_at: string;
+  created_at: string;
 }
 
 // Global memory store for preview / local testing
@@ -47,6 +58,8 @@ interface MemoryStore {
   memories: UserMemory[];
   files: UserFile[];
   shares: ResourceShare[];
+  knowledgeDocuments: KnowledgeDocument[];
+  knowledgeChunks: KnowledgeChunk[];
 }
 
 const DEMO_API_KEY_RAW = 'ua_live_demo_development_key_2026';
@@ -325,6 +338,8 @@ if (!globalForStore.memoryStore) {
     memories: [],
     files: [],
     shares: [],
+    knowledgeDocuments: [],
+    knowledgeChunks: [],
   };
 }
 
@@ -342,6 +357,8 @@ if (!memoryStore.platformSettings) {
 if (!memoryStore.memories) memoryStore.memories = [];
 if (!memoryStore.files) memoryStore.files = [];
 if (!memoryStore.shares) memoryStore.shares = [];
+if (!memoryStore.knowledgeDocuments) memoryStore.knowledgeDocuments = [];
+if (!memoryStore.knowledgeChunks) memoryStore.knowledgeChunks = [];
 
 export const DEMO_PRESET_KEY = DEMO_API_KEY_RAW;
 
@@ -379,12 +396,15 @@ export class DatabaseStore {
       status: row.status === 'disabled' ? 'disabled' : 'active',
       last_active_at: (row.last_active_at as string) || null,
       created_at: String(row.created_at || createdAtFallback || new Date().toISOString()),
+      email_confirmed: Boolean(row.email_confirmed),
       preferences: this.defaultPreferences(row.preferences),
     };
   }
 
   private static async persistSession(userId: string, token: string, expiresAt: string): Promise<void> {
     const admin = db();
+    const createdAt = new Date().toISOString();
+    const id = crypto.randomUUID();
     if (admin) {
       try {
         await admin.from('auth_sessions').insert({
@@ -396,7 +416,7 @@ export class DatabaseStore {
         console.error('Failed to persist auth session:', err);
       }
     }
-    memoryStore.sessions.push({ token, user_id: userId, expires_at: expiresAt });
+    memoryStore.sessions.push({ id, token, user_id: userId, expires_at: expiresAt, created_at: createdAt });
   }
 
   private static async revokeSessionToken(token: string): Promise<void> {
@@ -423,40 +443,145 @@ export class DatabaseStore {
     return projectId;
   }
 
+  private static async getProfileById(id: string): Promise<User | null> {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+        if (!error && data) {
+          return this.mapProfileRow(data as Record<string, unknown>);
+        }
+      } catch {
+        //
+      }
+    }
+    const user = memoryStore.users.find((u) => u.id === id);
+    return user ? this.toPublicUser(user) : null;
+  }
+
   private static async upsertProfileRecord(input: {
     id: string;
     email: string;
     full_name?: string;
     role?: UserRole;
     status?: UserStatus;
+    preserveExisting?: boolean;
   }): Promise<User> {
     const admin = db();
-    const role = input.role || 'developer';
-    const status = input.status || 'active';
-    const payload = {
+    const existing = await this.getProfileById(input.id);
+    const role = existing?.role || input.role || 'developer';
+    const status = existing?.status || input.status || 'active';
+    const payload: Record<string, unknown> = {
       id: input.id,
-      email: input.email.toLowerCase(),
-      full_name: input.full_name || input.email.split('@')[0],
-      role,
-      status,
+      email: (existing?.email || input.email).toLowerCase(),
+      full_name: existing?.full_name || input.full_name || input.email.split('@')[0],
       last_active_at: new Date().toISOString(),
     };
+    if (!existing) {
+      payload.role = role;
+      payload.status = status;
+    } else if (!input.preserveExisting) {
+      if (input.role && !existing.role) payload.role = input.role;
+      if (input.status && !existing.status) payload.status = input.status;
+    }
     if (admin) {
-      const { data, error } = await admin.from('profiles').upsert(payload).select().maybeSingle();
+      const { data, error } = await admin.from('profiles').upsert(payload, { onConflict: 'id', ignoreDuplicates: false }).select().maybeSingle();
       if (!error && data) {
         return this.mapProfileRow(data as Record<string, unknown>, input.email);
       }
     }
+    if (existing) {
+      return {
+        ...existing,
+        email: existing.email || input.email.toLowerCase(),
+        full_name: existing.full_name || input.full_name,
+        last_active_at: payload.last_active_at as string,
+      };
+    }
     return {
       id: input.id,
       email: input.email.toLowerCase(),
-      full_name: payload.full_name,
+      full_name: String(payload.full_name),
       role,
       status,
-      last_active_at: payload.last_active_at,
+      last_active_at: payload.last_active_at as string,
       created_at: new Date().toISOString(),
       preferences: this.defaultPreferences(),
     };
+  }
+
+  private static async listAuthDirectoryUsers(): Promise<AuthDirectoryUser[]> {
+    const admin = db();
+    if (!admin) return [];
+    const collected: AuthDirectoryUser[] = [];
+    const seen = new Set<string>();
+    try {
+      let page = 1;
+      const perPage = 200;
+      while (page <= 20) {
+        const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+        if (error || !data?.users) break;
+        for (const row of data.users) {
+          if (!row?.id || seen.has(row.id)) continue;
+          seen.add(row.id);
+          collected.push({
+            id: row.id,
+            email: row.email,
+            created_at: row.created_at,
+            last_sign_in_at: row.last_sign_in_at,
+            email_confirmed_at: row.email_confirmed_at,
+            user_metadata: (row.user_metadata || {}) as Record<string, unknown>,
+          });
+        }
+        if (data.users.length < perPage) break;
+        page += 1;
+      }
+    } catch (err) {
+      console.error('Failed to list Auth users:', err);
+    }
+    return collected;
+  }
+
+  private static async syncMissingProfiles(authUsers: AuthDirectoryUser[], profiles: User[]): Promise<User[]> {
+    const existingIds = new Set(profiles.map((p) => p.id));
+    const adminEmail = getAdminEmail();
+    for (const authUser of authUsers) {
+      if (!authUser.id || existingIds.has(authUser.id) || !authUser.email) continue;
+      const isSystemAdmin = Boolean(adminEmail) && authUser.email.toLowerCase() === adminEmail!.toLowerCase();
+      const synced = await this.upsertProfileRecord({
+        id: authUser.id,
+        email: authUser.email,
+        full_name:
+          typeof authUser.user_metadata?.full_name === 'string'
+            ? authUser.user_metadata.full_name
+            : authUser.email.split('@')[0],
+        role: isSystemAdmin ? 'admin' : 'developer',
+        status: 'active',
+        preserveExisting: true,
+      });
+      existingIds.add(synced.id);
+      profiles.push(synced);
+      await this.ensureUserMembership(synced.id, isSystemAdmin ? 'admin' : 'member').catch(() => {});
+    }
+    return profiles;
+  }
+
+  static async countAuthenticatedUsers(): Promise<number> {
+    const admin = db();
+    if (admin) {
+      try {
+        const authUsers = await this.listAuthDirectoryUsers();
+        if (authUsers.length > 0) return uniqueUserCount(authUsers);
+      } catch {
+        //
+      }
+    }
+    const users = await this.listUsers();
+    return uniqueUserCount(users);
+  }
+
+  static async countActiveAdmins(): Promise<number> {
+    const users = await this.listUsers();
+    return countActiveAdmins(users);
   }
 
   // Private helper to seed default data if DB is empty
@@ -608,6 +733,7 @@ export class DatabaseStore {
           full_name: fullName || email.split('@')[0],
           role,
           status: 'active',
+          preserveExisting: true,
         });
         await this.ensureUserMembership(user.id, isSystemAdmin ? 'admin' : 'member');
         const token = this.newSessionToken();
@@ -680,8 +806,9 @@ export class DatabaseStore {
           id: data.user.id,
           email: (data.user.email || email).toLowerCase(),
           full_name: existing?.full_name || data.user.user_metadata?.full_name || email.split('@')[0],
-          role,
-          status: 'active',
+          role: existing?.role || role,
+          status: existing?.status || 'active',
+          preserveExisting: true,
         });
         await this.ensureUserMembership(user.id, isSystemAdmin ? 'admin' : 'member');
         const token = this.newSessionToken();
@@ -782,6 +909,158 @@ export class DatabaseStore {
     await this.revokeSessionToken(token);
   }
 
+  static async listUserSessions(userId: string, currentToken?: string | null): Promise<AuthSessionRecord[]> {
+    const currentHash = currentToken ? this.hashSessionToken(currentToken) : null;
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('auth_sessions')
+          .select('token_hash, user_id, expires_at, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          return data.map((row) => ({
+            id: String(row.token_hash).slice(0, 16),
+            user_id: String(row.user_id),
+            created_at: String(row.created_at || new Date().toISOString()),
+            expires_at: String(row.expires_at),
+            current: Boolean(currentHash && row.token_hash === currentHash),
+          }));
+        }
+      } catch {
+        //
+      }
+    }
+    return memoryStore.sessions
+      .filter((s) => s.user_id === userId)
+      .map((s) => ({
+        id: s.id || this.hashSessionToken(s.token).slice(0, 16),
+        user_id: s.user_id,
+        created_at: s.created_at || s.expires_at,
+        expires_at: s.expires_at,
+        current: Boolean(currentToken && s.token === currentToken),
+      }));
+  }
+
+  static async revokeUserSession(userId: string, sessionId: string, currentToken?: string | null): Promise<boolean> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('auth_sessions')
+          .select('token_hash')
+          .eq('user_id', userId);
+        if (!error && data) {
+          const match = data.find((row) => String(row.token_hash).startsWith(sessionId) || String(row.token_hash).slice(0, 16) === sessionId);
+          if (match) {
+            await admin.from('auth_sessions').delete().eq('token_hash', match.token_hash).eq('user_id', userId);
+            memoryStore.sessions = memoryStore.sessions.filter(
+              (s) => !(s.user_id === userId && this.hashSessionToken(s.token) === match.token_hash)
+            );
+            return true;
+          }
+        }
+      } catch {
+        //
+      }
+    }
+    const before = memoryStore.sessions.length;
+    memoryStore.sessions = memoryStore.sessions.filter((s) => {
+      if (s.user_id !== userId) return true;
+      const id = s.id || this.hashSessionToken(s.token).slice(0, 16);
+      return id !== sessionId;
+    });
+    return memoryStore.sessions.length < before || Boolean(currentToken);
+  }
+
+  static async revokeAllUserSessions(userId: string, keepToken?: string | null): Promise<number> {
+    const keepHash = keepToken ? this.hashSessionToken(keepToken) : null;
+    const admin = db();
+    let deleted = 0;
+    if (admin) {
+      try {
+        let query = admin.from('auth_sessions').delete().eq('user_id', userId).select('token_hash');
+        if (keepHash) query = query.neq('token_hash', keepHash);
+        const { data } = await query;
+        deleted = data?.length || 0;
+      } catch {
+        //
+      }
+    }
+    const remaining = memoryStore.sessions.filter((s) => {
+      if (s.user_id !== userId) return true;
+      if (keepToken && s.token === keepToken) return true;
+      deleted += 1;
+      return false;
+    });
+    memoryStore.sessions = remaining;
+    return deleted;
+  }
+
+  static async requestPasswordReset(email: string, redirectTo: string): Promise<boolean> {
+    const authClient = authDb();
+    if (!authClient) return false;
+    const { error } = await authClient.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+    return true;
+  }
+
+  static async updateOwnPassword(accessToken: string, password: string): Promise<boolean> {
+    const admin = db();
+    if (!admin) return false;
+    const { data, error } = await admin.auth.getUser(accessToken);
+    if (error || !data.user) throw new Error('Invalid or expired recovery session');
+    const { error: updateError } = await admin.auth.admin.updateUserById(data.user.id, { password });
+    if (updateError) throw updateError;
+    return true;
+  }
+
+  static async resendVerificationEmail(email: string, redirectTo: string): Promise<boolean> {
+    const authClient = authDb();
+    if (!authClient) return false;
+    const { error } = await authClient.auth.resend({ type: 'signup', email, options: { emailRedirectTo: redirectTo } });
+    if (error) throw error;
+    return true;
+  }
+
+  static async deleteOwnAccount(userId: string): Promise<void> {
+    const existing = await this.getUserById(userId);
+    if (existing?.role === 'admin' && existing.status !== 'disabled') {
+      const activeAdmins = await this.countActiveAdmins();
+      if (activeAdmins <= 1) {
+        throw Object.assign(new Error(LAST_ADMIN_ERROR), { code: 'LAST_ADMIN' });
+      }
+    }
+    await this.clearUserMemories(userId);
+    const files = await this.listUserFiles(userId);
+    for (const file of files) {
+      await this.deleteUserFile(userId, file.id);
+    }
+    await this.revokeAllUserSessions(userId);
+    const admin = db();
+    if (admin) {
+      try {
+        await admin.from('resource_shares').delete().or(`owner_id.eq.${userId},shared_with_user_id.eq.${userId}`);
+      } catch {
+        //
+      }
+      try {
+        await admin.from('profiles').delete().eq('id', userId);
+      } catch {
+        //
+      }
+      try {
+        await admin.auth.admin.deleteUser(userId);
+      } catch (err) {
+        console.error('Failed to delete Auth user:', err);
+      }
+    }
+    memoryStore.users = memoryStore.users.filter((u) => u.id !== userId);
+    memoryStore.sessions = memoryStore.sessions.filter((s) => s.user_id !== userId);
+    memoryStore.shares = memoryStore.shares.filter((s) => s.owner_id !== userId && s.shared_with_user_id !== userId);
+  }
+
   static toPublicUser(user: StoredUser | User): User {
     return {
       id: user.id,
@@ -791,52 +1070,70 @@ export class DatabaseStore {
       status: user.status === 'disabled' ? 'disabled' : 'active',
       last_active_at: user.last_active_at || null,
       created_at: user.created_at,
+      email_confirmed: (user as User).email_confirmed,
       preferences: this.defaultPreferences((user as User).preferences),
     };
   }
 
   static async listUsers(query?: string): Promise<User[]> {
-    const needle = query?.trim().toLowerCase();
+    let profiles: User[] = [];
     if (supabase) {
       try {
-        let req = supabase.from('profiles').select('*').order('created_at', { ascending: false });
-        const { data, error } = await req;
+        const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
         if (!error && data) {
-          const users = data.map((row) => this.mapProfileRow(row as Record<string, unknown>));
-          if (!needle) return users;
-          return users.filter(
-            (u) =>
-              u.email.toLowerCase().includes(needle) ||
-              (u.full_name || '').toLowerCase().includes(needle)
-          );
+          profiles = data.map((row) => this.mapProfileRow(row as Record<string, unknown>));
         }
       } catch (err) {
         console.error('Supabase listUsers error, falling back to memoryStore:', err);
       }
     }
+    if (!profiles.length) {
+      profiles = memoryStore.users.map((u) => this.toPublicUser(u));
+    }
 
-    const users = memoryStore.users.map((u) => this.toPublicUser(u));
-    if (!needle) return users;
-    return users.filter(
-      (u) =>
-        u.email.toLowerCase().includes(needle) ||
-        (u.full_name || '').toLowerCase().includes(needle)
-    );
+    const authUsers = await this.listAuthDirectoryUsers();
+    if (authUsers.length) {
+      await this.syncMissingProfiles(authUsers, profiles);
+      const merged = mergeAuthUsersWithProfiles(authUsers, profiles, getAdminEmail());
+      return merged.users.filter((u) => matchesUserQuery(u, query));
+    }
+
+    const unique = new Map<string, User>();
+    for (const user of profiles) {
+      if (user.id && !unique.has(user.id)) unique.set(user.id, user);
+    }
+    return Array.from(unique.values()).filter((u) => matchesUserQuery(u, query));
   }
 
   static async getUserById(id: string): Promise<User | null> {
-    if (supabase) {
+    const profile = await this.getProfileById(id);
+    if (profile) return profile;
+    const admin = db();
+    if (admin) {
       try {
-        const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
-        if (!error && data) {
-          return this.mapProfileRow(data as Record<string, unknown>);
+        const { data } = await admin.auth.admin.getUserById(id);
+        if (data?.user) {
+          const authUser = data.user;
+          const adminEmail = getAdminEmail();
+          const isSystemAdmin =
+            Boolean(adminEmail) && (authUser.email || '').toLowerCase() === adminEmail!.toLowerCase();
+          return this.upsertProfileRecord({
+            id: authUser.id,
+            email: authUser.email || `${authUser.id}@users.local`,
+            full_name:
+              typeof authUser.user_metadata?.full_name === 'string'
+                ? authUser.user_metadata.full_name
+                : (authUser.email || '').split('@')[0],
+            role: isSystemAdmin ? 'admin' : 'developer',
+            status: 'active',
+            preserveExisting: true,
+          });
         }
-      } catch (err) {
-        console.error('Supabase getUserById error, falling back to memoryStore:', err);
+      } catch {
+        //
       }
     }
-    const user = memoryStore.users.find((u) => u.id === id);
-    return user ? this.toPublicUser(user) : null;
+    return null;
   }
 
   static async getUserByEmail(email: string): Promise<User | null> {
@@ -853,13 +1150,26 @@ export class DatabaseStore {
       }
     }
     const user = memoryStore.users.find((u) => u.email.toLowerCase() === normalized);
-    return user ? this.toPublicUser(user) : null;
+    if (user) return this.toPublicUser(user);
+    const authUsers = await this.listAuthDirectoryUsers();
+    const authUser = authUsers.find((row) => (row.email || '').toLowerCase() === normalized);
+    if (authUser) return this.getUserById(authUser.id);
+    return null;
   }
 
   static async updateUser(
     id: string,
-    updates: { role?: UserRole; status?: UserStatus; full_name?: string; preferences?: UserPreferences }
+    updates: { role?: UserRole; status?: UserStatus; full_name?: string; preferences?: UserPreferences },
+    options?: { actorId?: string; enforceLastAdmin?: boolean }
   ): Promise<User | null> {
+    const existing = await this.getUserById(id);
+    if (!existing) return null;
+    if (options?.enforceLastAdmin !== false && wouldRemoveActiveAdmin(existing, updates)) {
+      const activeAdmins = await this.countActiveAdmins();
+      if (activeAdmins <= 1) {
+        throw Object.assign(new Error(LAST_ADMIN_ERROR), { code: 'LAST_ADMIN' });
+      }
+    }
     if (supabase) {
       try {
         const payload: Record<string, unknown> = {};
@@ -872,6 +1182,7 @@ export class DatabaseStore {
           return this.mapProfileRow(data as Record<string, unknown>);
         }
       } catch (err) {
+        if ((err as Error & { code?: string }).code === 'LAST_ADMIN') throw err;
         console.error('Supabase updateUser error, falling back to memoryStore:', err);
       }
     }
@@ -1037,16 +1348,17 @@ export class DatabaseStore {
   }
 
   static async getPlatformOverview(): Promise<PlatformOverview> {
-    const [users, projects, agents, providers, usage, conversationCount] = await Promise.all([
+    const [users, projects, agents, providers, usage, conversationCount, totalUsers] = await Promise.all([
       this.listUsers(),
       this.listProjects(),
       this.listAgents(),
       this.listProviders(),
       this.getUsageStats(),
       this.countConversations(),
+      this.countAuthenticatedUsers(),
     ]);
     return {
-      totalUsers: users.length,
+      totalUsers,
       activeUsers: users.filter((u) => u.status !== 'disabled').length,
       totalRequests: usage.totalRequests,
       successfulRequests: usage.successfulRequests,
@@ -1569,6 +1881,7 @@ export class DatabaseStore {
   static async deleteUserFile(userId: string, fileId: string): Promise<UserFile | null> {
     const existing = await this.getUserFile(fileId, userId);
     if (!existing) return null;
+    await this.deleteKnowledgeForFile(userId, fileId);
     const admin = db();
     if (admin) {
       try {
@@ -1578,14 +1891,207 @@ export class DatabaseStore {
           .eq('id', fileId)
           .eq('user_id', userId)
           .select('*');
-        if (!error && data && data.length > 0) return data[0] as UserFile;
+        if (!error && data && data.length > 0) {
+          memoryStore.files = memoryStore.files.filter((f) => !(f.id === fileId && f.user_id === userId));
+          return data[0] as UserFile;
+        }
       } catch {
         //
       }
     }
     const before = memoryStore.files.length;
     memoryStore.files = memoryStore.files.filter((f) => !(f.id === fileId && f.user_id === userId));
-    return memoryStore.files.length < before ? existing : null;
+    return memoryStore.files.length < before ? existing : existing;
+  }
+
+  static async upsertKnowledgeDocument(doc: Omit<KnowledgeDocument, 'created_at' | 'updated_at'> & { created_at?: string }): Promise<KnowledgeDocument> {
+    const now = new Date().toISOString();
+    const payload = {
+      id: doc.id,
+      user_id: doc.user_id,
+      file_id: doc.file_id,
+      original_name: doc.original_name,
+      mime_type: doc.mime_type,
+      status: doc.status,
+      chunk_count: doc.chunk_count,
+      error_message: doc.error_message || null,
+      updated_at: now,
+    };
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin.from('knowledge_documents').upsert(payload).select().maybeSingle();
+        if (!error && data) return data as KnowledgeDocument;
+      } catch {
+        //
+      }
+    }
+    const created: KnowledgeDocument = {
+      ...payload,
+      created_at: doc.created_at || now,
+      updated_at: now,
+    };
+    memoryStore.knowledgeDocuments = memoryStore.knowledgeDocuments.filter((d) => d.id !== created.id);
+    memoryStore.knowledgeDocuments.unshift(created);
+    return created;
+  }
+
+  static async listKnowledgeDocuments(userId: string): Promise<KnowledgeDocument[]> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('knowledge_documents')
+          .select('*')
+          .eq('user_id', userId)
+          .order('updated_at', { ascending: false });
+        if (!error && data) return data as KnowledgeDocument[];
+      } catch {
+        //
+      }
+    }
+    return memoryStore.knowledgeDocuments.filter((d) => d.user_id === userId);
+  }
+
+  static async getKnowledgeDocumentByFile(userId: string, fileId: string): Promise<KnowledgeDocument | null> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin
+          .from('knowledge_documents')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('file_id', fileId)
+          .maybeSingle();
+        if (!error && data) return data as KnowledgeDocument;
+      } catch {
+        //
+      }
+    }
+    return memoryStore.knowledgeDocuments.find((d) => d.user_id === userId && d.file_id === fileId) || null;
+  }
+
+  static async replaceKnowledgeChunks(userId: string, documentId: string, fileId: string, chunks: Array<{ content: string; embedding?: number[] | null; embedding_model?: string | null }>): Promise<number> {
+    await this.deleteKnowledgeChunks(userId, documentId);
+    const admin = db();
+    const rows: KnowledgeChunk[] = chunks.map((chunk, index) => ({
+      id: crypto.randomUUID(),
+      document_id: documentId,
+      user_id: userId,
+      file_id: fileId,
+      chunk_index: index,
+      content: chunk.content,
+      embedding: chunk.embedding || null,
+      embedding_model: chunk.embedding_model || null,
+      created_at: new Date().toISOString(),
+    }));
+    if (admin && rows.length) {
+      try {
+        const { error } = await admin.from('knowledge_chunks').insert(
+          rows.map((row) => ({
+            id: row.id,
+            document_id: row.document_id,
+            user_id: row.user_id,
+            file_id: row.file_id,
+            chunk_index: row.chunk_index,
+            content: row.content,
+            embedding: row.embedding,
+            embedding_model: row.embedding_model,
+          }))
+        );
+        if (!error) return rows.length;
+      } catch {
+        //
+      }
+    }
+    memoryStore.knowledgeChunks.push(...rows);
+    return rows.length;
+  }
+
+  static async deleteKnowledgeChunks(userId: string, documentId: string): Promise<void> {
+    const admin = db();
+    if (admin) {
+      try {
+        await admin.from('knowledge_chunks').delete().eq('user_id', userId).eq('document_id', documentId);
+      } catch {
+        //
+      }
+    }
+    memoryStore.knowledgeChunks = memoryStore.knowledgeChunks.filter(
+      (c) => !(c.user_id === userId && c.document_id === documentId)
+    );
+  }
+
+  static async deleteKnowledgeForFile(userId: string, fileId: string): Promise<void> {
+    const admin = db();
+    if (admin) {
+      try {
+        await admin.from('knowledge_chunks').delete().eq('user_id', userId).eq('file_id', fileId);
+        await admin.from('knowledge_documents').delete().eq('user_id', userId).eq('file_id', fileId);
+      } catch {
+        //
+      }
+    }
+    memoryStore.knowledgeChunks = memoryStore.knowledgeChunks.filter((c) => !(c.user_id === userId && c.file_id === fileId));
+    memoryStore.knowledgeDocuments = memoryStore.knowledgeDocuments.filter((d) => !(d.user_id === userId && d.file_id === fileId));
+  }
+
+  static async listKnowledgeChunks(userId: string): Promise<KnowledgeChunk[]> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin.from('knowledge_chunks').select('*').eq('user_id', userId);
+        if (!error && data) return data as KnowledgeChunk[];
+      } catch {
+        //
+      }
+    }
+    return memoryStore.knowledgeChunks.filter((c) => c.user_id === userId);
+  }
+
+  static async searchKnowledge(userId: string, query: string, queryEmbedding: number[] | null, topK = 6): Promise<KnowledgeHit[]> {
+    const { cosineSimilarity, keywordScore } = await import('../knowledge/chunk');
+    const chunks = await this.listKnowledgeChunks(userId);
+    const docs = await this.listKnowledgeDocuments(userId);
+    const docById = new Map(docs.map((d) => [d.id, d]));
+    const scored = chunks
+      .map((chunk) => {
+        const vectorScore =
+          queryEmbedding && Array.isArray(chunk.embedding) && chunk.embedding.length === queryEmbedding.length
+            ? cosineSimilarity(queryEmbedding, chunk.embedding)
+            : 0;
+        const lexical = keywordScore(query, chunk.content);
+        return {
+          chunk,
+          score: vectorScore * 0.82 + lexical * 0.18,
+        };
+      })
+      .filter((row) => row.score > 0.05)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, Math.min(topK, 12)));
+
+    return scored.map((row) => ({
+      chunk_id: row.chunk.id,
+      document_id: row.chunk.document_id,
+      file_id: row.chunk.file_id,
+      user_id: row.chunk.user_id,
+      original_name: docById.get(row.chunk.document_id)?.original_name || 'document',
+      content: row.chunk.content,
+      score: row.score,
+    }));
+  }
+
+  static async getShareById(shareId: string): Promise<ResourceShare | null> {
+    const admin = db();
+    if (admin) {
+      try {
+        const { data, error } = await admin.from('resource_shares').select('*').eq('id', shareId).maybeSingle();
+        if (!error && data) return data as ResourceShare;
+      } catch {
+        //
+      }
+    }
+    return memoryStore.shares.find((s) => s.id === shareId) || null;
   }
 
   static async listSharesForOwner(ownerId: string, resourceType?: ShareResourceType, resourceId?: string): Promise<ResourceShare[]> {

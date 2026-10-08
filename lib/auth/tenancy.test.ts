@@ -12,6 +12,9 @@ import { GET as getConversation } from '../../app/api/v1/conversations/[id]/rout
 import { GET as getProviders } from '../../app/api/v1/providers/route';
 import { GET as getApiKeys } from '../../app/api/v1/api-keys/route';
 import { GET as getAdminOverview } from '../../app/api/v1/admin/overview/route';
+import { GET as getAdminUsers } from '../../app/api/v1/admin/users/route';
+import { PATCH as patchAdminUser } from '../../app/api/v1/admin/users/[id]/route';
+import { LAST_ADMIN_ERROR } from './users-sync';
 import { POST as postMusic } from '../../app/api/creative/music/route';
 import { GET as getMemories, POST as postMemory, DELETE as deleteAllMemories } from '../../app/api/v1/memories/route';
 import { DELETE as deleteMemory } from '../../app/api/v1/memories/[id]/route';
@@ -290,7 +293,8 @@ describe('production tenancy and API security', () => {
     const uploadedBody = await uploaded.json();
     assert.equal(uploadedBody.file.original_name, 'notes.txt');
     assert.equal(uploadedBody.file.storage_path, undefined);
-    assert.equal(uploadedBody.analysisEnabled, false);
+    assert.equal(uploadedBody.analysisEnabled, true);
+    assert.equal(uploadedBody.file.indexed, true);
     const fileId = uploadedBody.file.id;
 
     const otherList = await getFiles(requestWith('http://localhost/api/v1/files', {}, { omniagent_session: other.token }));
@@ -379,5 +383,49 @@ describe('production tenancy and API security', () => {
     assert.equal(auth, undefined);
     assert.ok(errorResponse);
     assert.equal(errorResponse.status, 401);
+  });
+
+  it('blocks demoting or disabling the last active administrator', async () => {
+    const admin = await DatabaseStore.registerUser(`last-admin-${Date.now()}@example.com`, 'password123', 'Admin');
+    const member = await DatabaseStore.registerUser(`last-admin-member-${Date.now()}@example.com`, 'password123', 'Member');
+    await DatabaseStore.updateUser(admin.user.id, { role: 'admin' }, { enforceLastAdmin: false });
+    const listedUsers = await DatabaseStore.listUsers();
+    const extraAdmins = listedUsers.filter((u) => u.role === 'admin' && u.status !== 'disabled' && u.id !== admin.user.id);
+    for (const extra of extraAdmins) {
+      await DatabaseStore.updateUser(extra.id, { role: 'developer' }, { enforceLastAdmin: false });
+    }
+
+    const listRes = await getAdminUsers(
+      requestWith('http://localhost/api/v1/admin/users', {}, { omniagent_session: admin.token })
+    );
+    assert.equal(listRes.status, 200);
+    const listed = await listRes.json();
+    assert.ok((listed.users || []).some((u: { id: string }) => u.id === admin.user.id));
+    assert.ok((listed.users || []).some((u: { id: string }) => u.id === member.user.id));
+
+    const stillAdmin = await DatabaseStore.getUserById(admin.user.id);
+    assert.equal(stillAdmin?.role, 'admin');
+
+    const demoteReq = new NextRequest(`http://localhost/api/v1/admin/users/${admin.user.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'developer' }),
+    });
+    demoteReq.cookies.set('omniagent_session', admin.token);
+    const demoted = await patchAdminUser(demoteReq, { params: Promise.resolve({ id: admin.user.id }) });
+    const demotedBody = await demoted.json();
+    assert.equal(demoted.status, 409);
+    assert.equal(demotedBody.error, LAST_ADMIN_ERROR);
+
+    const disableReq = new NextRequest(`http://localhost/api/v1/admin/users/${admin.user.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'disabled' }),
+    });
+    disableReq.cookies.set('omniagent_session', admin.token);
+    const disabled = await patchAdminUser(disableReq, { params: Promise.resolve({ id: admin.user.id }) });
+    const disabledBody = await disabled.json();
+    assert.equal(disabled.status, 409);
+    assert.equal(disabledBody.error, LAST_ADMIN_ERROR);
   });
 });

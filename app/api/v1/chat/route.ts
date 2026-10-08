@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
       userId: auth.user?.id,
       overrideModel,
       overrideThinkingLevel: thinkingLevel,
+      useKnowledge: true,
     });
 
     const response = NextResponse.json({

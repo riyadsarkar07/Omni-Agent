@@ -185,10 +185,12 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
         email: email.trim(),
       }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       window.alert(data.error || 'Share failed');
+      return;
     }
+    window.alert(`Shared read-only with ${email.trim()}`);
   };
 
   const navItems: Array<{ id: WorkspaceTab; label: string; icon: typeof Bot }> = [
