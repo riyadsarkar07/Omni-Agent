@@ -43,5 +43,8 @@ export function classifyChatError(raw: string, status?: number): ClassifiedChatE
   if (/provider.*(unavailable|not found|disabled)|econnrefused|enotfound|connection refused/.test(lower)) {
     return make('provider_unavailable', 'Provider unavailable', 'This provider could not be reached. Switch provider or try again later.');
   }
+  if (/does not support image input|vision unsupported|image was not sent/.test(lower)) {
+    return make('model_unavailable', 'Vision not supported', text);
+  }
   return make('api', 'API error', text || 'The provider returned an error. Retry or change model.');
 }

@@ -3,10 +3,20 @@ import { Agent, ChatMessage } from './types';
 import { getToolDeclarations, executeToolCall } from './tools/registry';
 import { DatabaseStore } from './db/store';
 import { ModelRouter } from './providers/router';
+import {
+  CapabilityError,
+  ChatImagePart,
+  findVisionSuggestions,
+  providerSupportsVision,
+  visionUnsupportedMessage,
+} from './chat/multimodal';
+import { buildNormalizedUserMessage, geminiUserPartsFromText } from './chat/provider-content';
 
 export interface ChatEngineOptions {
   agent: Agent;
   message: string;
+  storedMessage?: string;
+  images?: ChatImagePart[];
   conversationId?: string;
   projectId: string;
   apiKeyId?: string;
@@ -14,6 +24,7 @@ export interface ChatEngineOptions {
   overrideThinkingLevel?: 'HIGH' | 'LOW' | 'MINIMAL' | 'OFF';
   overrideModel?: string;
   useKnowledge?: boolean;
+  knowledgeQuery?: string;
 }
 
 export interface ChatEngineResult {
@@ -69,16 +80,26 @@ export class AgentEngine {
     return instruction;
   }
 
+  private static async assertVisionSupport(options: ChatEngineOptions, model: string, providerId: string): Promise<void> {
+    if (!options.images?.length) return;
+    const provider = await ModelRouter.resolveProvider(providerId, model);
+    if (providerSupportsVision(provider, model)) return;
+    const all = await DatabaseStore.listProviders().catch(() => []);
+    const suggested = findVisionSuggestions([ModelRouter.builtinGemini(), ...all]);
+    throw new CapabilityError(visionUnsupportedMessage(model, suggested), 'VISION_UNSUPPORTED', suggested);
+  }
+
   /**
    * Standard Unary Chat Execution
    */
   static async executeChat(options: ChatEngineOptions): Promise<ChatEngineResult> {
     const startTime = Date.now();
     const { agent, message, projectId, apiKeyId } = options;
+    const images = options.images || [];
     const systemInstruction = await AgentEngine.resolveSystemInstruction(
       agent,
       options.userId,
-      message,
+      options.knowledgeQuery || options.storedMessage || message,
       options.useKnowledge === true
     );
 
@@ -87,7 +108,7 @@ export class AgentEngine {
       options.conversationId,
       projectId,
       agent.id,
-      message.slice(0, 40),
+      (options.storedMessage || message).slice(0, 40),
       options.userId
     );
 
@@ -100,12 +121,11 @@ export class AgentEngine {
       }
     }
 
-    // Persist user prompt
-    await DatabaseStore.saveMessage(conversation.id, 'user', message);
-
-    // Determine model and thinking level
     const modelToUse = options.overrideModel || agent.model || 'gemini-3.8-flash';
     const providerId = agent.provider_id || 'gemini';
+    await AgentEngine.assertVisionSupport(options, modelToUse, providerId);
+    await DatabaseStore.saveMessage(conversation.id, 'user', options.storedMessage || message);
+
     const useExternalProvider =
       (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') ||
       !modelToUse.toLowerCase().includes('gemini');
@@ -119,10 +139,7 @@ export class AgentEngine {
           content: h.content,
         });
       }
-      messagesForPayload.push({
-        role: 'user' as const,
-        content: message,
-      });
+      messagesForPayload.push(buildNormalizedUserMessage(message, images));
 
       const params = {
         model: modelToUse,
@@ -219,13 +236,11 @@ export class AgentEngine {
     const thinkingLevelSetting = options.overrideThinkingLevel || agent.thinking_level || 'OFF';
     const isHighThinking = isProModel && thinkingLevelSetting === 'HIGH';
 
-    // Build Gemini contents array
     const contents: Array<{
       role: 'user' | 'model';
-      parts: Array<{ text?: string }>;
+      parts: ReturnType<typeof geminiUserPartsFromText>;
     }> = [];
 
-    // Append prior history (limit last 20 messages for context safety)
     const recentHistory = historyMessages.slice(-20);
     for (const h of recentHistory) {
       if (h.role === 'user' || h.role === 'model') {
@@ -236,10 +251,9 @@ export class AgentEngine {
       }
     }
 
-    // Append current prompt
     contents.push({
       role: 'user',
-      parts: [{ text: message }],
+      parts: geminiUserPartsFromText(message, images),
     });
 
     // Tools setup
@@ -407,10 +421,11 @@ export class AgentEngine {
     const encoder = new TextEncoder();
     const startTime = Date.now();
     const { agent, message, projectId, apiKeyId } = options;
+    const images = options.images || [];
     const systemInstruction = await AgentEngine.resolveSystemInstruction(
       agent,
       options.userId,
-      message,
+      options.knowledgeQuery || options.storedMessage || message,
       options.useKnowledge === true
     );
 
@@ -418,7 +433,7 @@ export class AgentEngine {
       options.conversationId,
       projectId,
       agent.id,
-      message.slice(0, 40),
+      (options.storedMessage || message).slice(0, 40),
       options.userId
     );
 
@@ -430,10 +445,11 @@ export class AgentEngine {
       }
     }
 
-    await DatabaseStore.saveMessage(conversation.id, 'user', message);
-
     const modelToUse = options.overrideModel || agent.model || 'gemini-3.8-flash';
     const providerId = agent.provider_id || 'gemini';
+    await AgentEngine.assertVisionSupport(options, modelToUse, providerId);
+    await DatabaseStore.saveMessage(conversation.id, 'user', options.storedMessage || message);
+
     const useExternalProvider =
       (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') ||
       !modelToUse.toLowerCase().includes('gemini');
@@ -446,10 +462,7 @@ export class AgentEngine {
           content: h.content,
         });
       }
-      messagesForPayload.push({
-        role: 'user' as const,
-        content: message,
-      });
+      messagesForPayload.push(buildNormalizedUserMessage(message, images));
 
       const params = {
         model: modelToUse,
@@ -591,7 +604,7 @@ export class AgentEngine {
 
     const contents: Array<{
       role: 'user' | 'model';
-      parts: Array<{ text?: string }>;
+      parts: ReturnType<typeof geminiUserPartsFromText>;
     }> = [];
 
     for (const h of historyMessages.slice(-20)) {
@@ -599,7 +612,7 @@ export class AgentEngine {
         contents.push({ role: h.role, parts: [{ text: h.content }] });
       }
     }
-    contents.push({ role: 'user', parts: [{ text: message }] });
+    contents.push({ role: 'user', parts: geminiUserPartsFromText(message, images) });
 
     const config: Record<string, unknown> = {
       systemInstruction,

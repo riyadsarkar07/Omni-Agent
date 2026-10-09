@@ -85,9 +85,17 @@ export interface AIProvider {
   updated_at?: string;
 }
 
+export interface NormalizedContentPart {
+  type: 'text' | 'image';
+  text?: string;
+  mimeType?: string;
+  data?: string;
+}
+
 export interface NormalizedMessage {
   role: 'user' | 'model' | 'system' | 'tool';
   content: string;
+  parts?: NormalizedContentPart[];
   toolCalls?: Array<{
     id?: string;
     name: string;

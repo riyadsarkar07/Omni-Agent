@@ -49,6 +49,22 @@ export const ChatMessageBubble: React.FC<ChatMessageProps> = ({
             : 'rounded-tl-md border border-white/5 bg-zinc-800/80 text-zinc-100'
         }`}
       >
+        {isUser && message.attachments && message.attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {message.attachments.map((file) => (
+              <span
+                key={file.id}
+                className="inline-flex max-w-full items-center gap-1 rounded-lg bg-zinc-900/10 px-2 py-1 text-[10px] text-zinc-700"
+              >
+                {file.previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={file.previewUrl} alt="" className="h-4 w-4 rounded object-cover" />
+                ) : null}
+                <span className="truncate">{file.name}</span>
+              </span>
+            ))}
+          </div>
+        )}
         {isUser ? (
           editing ? (
             <div className="space-y-2">

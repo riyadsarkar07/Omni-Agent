@@ -12,8 +12,11 @@ import { AgentParameters } from './AgentParameters';
 import { EmptyPlayground } from './EmptyPlayground';
 import { MobileNavigationDrawer } from './MobileNavigationDrawer';
 import { MobileAgentSheet } from './MobileAgentSheet';
+import { VoiceConversation } from './VoiceConversation';
 import { ClassifiedChatError, PlaygroundMessage } from './types';
 import { classifyChatError } from './errors';
+import { PendingAttachment } from './AttachmentPreview';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 
 const PERSONA_PROMPTS: Record<string, string> = {
   programmer:
@@ -73,6 +76,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [voiceModeOpen, setVoiceModeOpen] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -87,6 +94,26 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  const applyTranscript = useCallback((text: string, isFinal: boolean) => {
+    const piece = text.trim();
+    if (!piece) return;
+    if (isFinal) {
+      setInterimTranscript('');
+      setInputMessage((prev) => {
+        const base = prev.trim();
+        return base ? `${base} ${piece}` : piece;
+      });
+      return;
+    }
+    setInterimTranscript(piece);
+  }, []);
+
+  const speech = useSpeechRecognition(applyTranscript);
 
   useEffect(() => {
     if (!initialConversationId) return;
@@ -154,6 +181,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           providerId: string;
           providerName: string;
           protocol?: AIProvider['protocol'];
+          capabilities?: AIProvider['capabilities'];
+          vision?: boolean;
           isDefault?: boolean;
         }>) {
           const existing = byProvider.get(entry.providerId);
@@ -163,8 +192,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
               existing.isDefault = true;
               existing.defaultModel = entry.id;
             }
+            if (entry.vision && !existing.capabilities.includes('VISION')) existing.capabilities.push('VISION');
             continue;
           }
+          const capabilities = [...(entry.capabilities || ['TEXT' as const])];
+          if (entry.vision && !capabilities.includes('VISION')) capabilities.push('VISION');
           byProvider.set(entry.providerId, {
             id: entry.providerId,
             name: entry.providerName,
@@ -174,7 +206,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
             enabled: true,
             defaultModel: entry.id,
             models: [entry.id],
-            capabilities: ['TEXT'],
+            capabilities,
             connectionStatus: 'Untested',
             isDefault: Boolean(entry.isDefault),
           });
@@ -223,6 +255,85 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
   const resolvedModel = availableModels.includes(model) ? model : availableModels[0] || '';
   const showThinking = thinkingEnabledForModel(resolvedModel, activeProvider);
   const resolvedThinking: 'HIGH' | 'LOW' | 'MINIMAL' | 'OFF' = showThinking ? thinkingLevel : 'OFF';
+  const visionSupported = Boolean(
+    activeProvider?.capabilities?.includes('VISION') ||
+      /gemini|gpt-4o|gpt-4\.1|claude-3|claude-4|vision|vl-/.test((resolvedModel || '').toLowerCase())
+  );
+
+  const uploadAttachment = useCallback(async (localId: string, file: File) => {
+    setAttachments((prev) =>
+      prev.map((item) => (item.id === localId ? { ...item, status: 'uploading', progress: 15, error: undefined } : item))
+    );
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const res = await apiFetch('/api/v1/files', { method: 'POST', body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Upload failed');
+      const fileId = data.file?.id as string | undefined;
+      if (!fileId) throw new Error('Upload did not return a file id');
+      setAttachments((prev) =>
+        prev.map((item) =>
+          item.id === localId ? { ...item, status: 'ready', progress: 100, fileId } : item
+        )
+      );
+    } catch (err) {
+      setAttachments((prev) =>
+        prev.map((item) =>
+          item.id === localId
+            ? { ...item, status: 'error', progress: 0, error: (err as Error).message || 'Upload failed' }
+            : item
+        )
+      );
+    }
+  }, []);
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const allowed = /\.(png|jpe?g|webp|pdf|txt|md|markdown|docx)$/i;
+      const next: PendingAttachment[] = [];
+      for (const file of files) {
+        if (!allowed.test(file.name) && !file.type.startsWith('image/') && !['application/pdf', 'text/plain', 'text/markdown'].includes(file.type)) {
+          continue;
+        }
+        if (file.size > 10 * 1024 * 1024) continue;
+        const id = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+        next.push({
+          id,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          previewUrl,
+          status: 'pending',
+          progress: 0,
+          file,
+        });
+      }
+      if (!next.length) return;
+      setAttachments((prev) => [...prev, ...next].slice(0, 8));
+      for (const item of next) {
+        if (item.file) void uploadAttachment(item.id, item.file);
+      }
+    },
+    [uploadAttachment]
+  );
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => {
+      const found = prev.find((item) => item.id === id);
+      if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
+      return prev.filter((item) => item.id !== id);
+    });
+  }, []);
+
+  const retryAttachment = useCallback(
+    (id: string) => {
+      const found = attachmentsRef.current.find((item) => item.id === id);
+      if (found?.file) void uploadAttachment(id, found.file);
+    },
+    [uploadAttachment]
+  );
 
   const handleSelectAgent = (agentId: string) => {
     setSelectedAgentId(agentId);
@@ -311,12 +422,28 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
   ]);
 
   const sendPrompt = useCallback(
-    async (prompt: string, options?: { replaceUserId?: string; regenerate?: boolean }) => {
+    async (prompt: string, options?: { replaceUserId?: string; regenerate?: boolean; attachmentSnapshot?: PendingAttachment[] }) => {
       const trimmed = prompt.trim();
-      if (!trimmed || isChatLoading) return;
+      const ready = (options?.attachmentSnapshot || attachmentsRef.current).filter(
+        (item) => item.status === 'ready' && item.fileId
+      );
+      if ((!trimmed && ready.length === 0) || isChatLoading) return;
+      if (attachmentsRef.current.some((item) => item.status === 'uploading' || item.status === 'pending')) return;
 
+      speech.stop();
+      setInterimTranscript('');
       setChatError(null);
       setInputMessage('');
+      const displayAttachments = ready.map((item) => ({
+        id: item.fileId || item.id,
+        name: item.name,
+        type: item.type,
+        size: item.size,
+        previewUrl: item.previewUrl,
+      }));
+      if (!options?.regenerate) {
+        setAttachments([]);
+      }
 
       const userMsgId = options?.replaceUserId || `user_${Date.now()}`;
       setMessages((prev) => {
@@ -324,7 +451,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
         if (options?.replaceUserId) {
           const idx = next.findIndex((m) => m.id === options.replaceUserId);
           if (idx >= 0) next = next.slice(0, idx);
-          return [...next, { id: userMsgId, role: 'user', text: trimmed }];
+          return [...next, { id: userMsgId, role: 'user', text: trimmed, attachments: displayAttachments }];
         }
         if (options?.regenerate) {
           while (next.length > 0 && next[next.length - 1].role === 'model') {
@@ -332,7 +459,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           }
           return next;
         }
-        return [...next, { id: userMsgId, role: 'user', text: trimmed }];
+        return [...next, { id: userMsgId, role: 'user', text: trimmed, attachments: displayAttachments }];
       });
 
       setIsChatLoading(true);
@@ -350,6 +477,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
         overrideModel: resolvedModel || undefined,
         overrideProviderId: activeProviderId,
         thinkingLevel: thinkingLevelToUse,
+        attachmentIds: ready.map((item) => item.fileId!).filter(Boolean),
       };
 
       const finishError = (raw: string, status?: number) => {
@@ -513,15 +641,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
       resolvedModel,
       useStreaming,
       loadConversations,
+      speech,
     ]
   );
 
   const handleNewChat = () => {
     stopGeneration();
+    speech.stop();
     setMessages([]);
     setConversationId('');
     setChatError(null);
     setInputMessage('');
+    setAttachments([]);
+    setVoiceModeOpen(false);
     setDrawerOpen(false);
   };
 
@@ -629,7 +761,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
       <div className="hidden h-full min-h-0 lg:flex">{sidebar}</div>
 
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-white/5 px-3 lg:hidden">
           <button
             type="button"
@@ -748,7 +880,48 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           onSend={() => sendPrompt(inputMessage)}
           onStop={stopGeneration}
           isGenerating={isChatLoading}
+          attachments={attachments}
+          onAddFiles={addFiles}
+          onRemoveAttachment={removeAttachment}
+          onRetryAttachment={retryAttachment}
+          voiceListening={speech.listening}
+          voiceSupport={speech.support}
+          voiceError={speech.error}
+          interimTranscript={interimTranscript}
+          onToggleVoice={speech.toggle}
+          onOpenVoiceMode={() => setVoiceModeOpen(true)}
+          visionSupported={visionSupported}
         />
+        {voiceModeOpen ? (
+        <VoiceConversation
+          open={voiceModeOpen}
+          onClose={() => setVoiceModeOpen(false)}
+          agentId={selectedAgentId || undefined}
+          conversationId={conversationId}
+          onConversationId={setConversationId}
+          overrideModel={resolvedModel || undefined}
+          overrideProviderId={activeProvider?.id}
+          thinkingLevel={resolvedThinking}
+          onUserUtterance={(text) =>
+            setMessages((prev) => [...prev, { id: `user_${Date.now()}`, role: 'user', text }])
+          }
+          onAssistantUtterance={(text, meta) => {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `model_${Date.now()}`,
+                role: 'model',
+                text,
+                model: meta?.model,
+                tokens: meta?.tokens,
+                latencyMs: meta?.latencyMs,
+                provider: activeProvider?.name,
+              },
+            ]);
+            loadConversations();
+          }}
+        />
+        ) : null}
       </section>
 
       <aside className="hidden h-full w-80 shrink-0 overflow-hidden border-l border-white/5 bg-zinc-950/30 xl:flex xl:flex-col">

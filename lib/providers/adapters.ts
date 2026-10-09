@@ -8,6 +8,7 @@ import {
 import { joinProviderUrl, defaultOfficialBaseUrl, normalizeProviderBaseUrl } from './catalog';
 import { buildProviderHeaders, fetchWithTimeout, readSafeError, sleep } from './http';
 import { sanitizeProviderError } from './secrets';
+import { toAnthropicContent, toGeminiParts, toOpenAIContent } from '../chat/provider-content';
 
 // Standard helper to parse SSE lines
 export async function* parseSSE(response: Response): AsyncGenerator<string, void, unknown> {
@@ -122,12 +123,11 @@ export class GeminiAdapter {
     const ai = this.getClient(provider.apiKey);
     const model = params.model || provider.defaultModel || 'gemini-3.8-flash';
 
-    // Map NormalizedMessages to Gemini contents
     const contents = params.messages.map((m) => {
       const mappedRole = m.role === 'model' ? 'model' : 'user';
       return {
         role: mappedRole as 'user' | 'model',
-        parts: [{ text: m.content }],
+        parts: toGeminiParts(m),
       };
     });
 
@@ -182,7 +182,7 @@ export class GeminiAdapter {
       const mappedRole = m.role === 'model' ? 'model' : 'user';
       return {
         role: mappedRole as 'user' | 'model',
-        parts: [{ text: m.content }],
+        parts: toGeminiParts(m),
       };
     });
 
@@ -577,14 +577,14 @@ export class OpenAIAdapter {
   }
 
   static buildMessages(params: GenerateParams) {
-    const messages: Array<{ role: string; content: string }> = [];
+    const messages: Array<{ role: string; content: string | Array<Record<string, unknown>> }> = [];
     if (params.systemInstruction) {
       messages.push({ role: 'system', content: params.systemInstruction });
     }
     params.messages.forEach((m) => {
       messages.push({
         role: m.role === 'model' ? 'assistant' : m.role,
-        content: m.content,
+        content: toOpenAIContent(m),
       });
     });
     return messages;
@@ -850,7 +850,7 @@ export class AnthropicAdapter {
       .filter((m) => m.role !== 'system')
       .map((m) => ({
         role: m.role === 'model' ? 'assistant' : 'user',
-        content: m.content,
+        content: toAnthropicContent(m),
       }));
 
     const body: Record<string, unknown> = {
@@ -908,7 +908,7 @@ export class AnthropicAdapter {
       .filter((m) => m.role !== 'system')
       .map((m) => ({
         role: m.role === 'model' ? 'assistant' : 'user',
-        content: m.content,
+        content: toAnthropicContent(m),
       }));
 
     const body: Record<string, unknown> = {

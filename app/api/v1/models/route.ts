@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
+import { modelLooksLikeVision, providerSupportsVision } from '@/lib/chat/multimodal';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -25,6 +26,8 @@ export async function GET(req: NextRequest) {
           providerId: p.id,
           providerName: p.name,
           protocol: p.protocol,
+          capabilities: p.capabilities || [],
+          vision: providerSupportsVision(p, model) || modelLooksLikeVision(model),
           isDefault: p.isDefault && p.defaultModel === model,
         }))
       );

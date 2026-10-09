@@ -1,7 +1,16 @@
+export interface PlaygroundAttachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  previewUrl?: string;
+}
+
 export interface PlaygroundMessage {
   id: string;
   role: 'user' | 'model' | 'tool';
   text: string;
+  attachments?: PlaygroundAttachment[];
   toolCalls?: Array<{
     name: string;
     args: Record<string, unknown>;

@@ -1,89 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
-import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
+import { applyCorsHeaders } from '@/lib/auth/middleware';
 import { allowedCorsOrigin } from '@/lib/auth/cors';
-import { DatabaseStore } from '@/lib/db/store';
-import { AgentEngine } from '@/lib/agent-engine';
-import { hasAdminPrivileges } from '@/lib/auth/rbac';
-import { userCanExecuteAgent, userCanMutateConversation } from '@/lib/auth/access';
-import { enforceUserQuota } from '@/lib/auth/quota';
-
-const chatStreamSchema = z.object({
-  message: z.string().min(1, 'Message is required').max(10000),
-  agentId: z.string().optional(),
-  conversationId: z.string().optional(),
-  overrideModel: z.string().optional(),
-  overrideProviderId: z.string().optional(),
-  thinkingLevel: z.enum(['HIGH', 'LOW', 'MINIMAL', 'OFF']).optional(),
-});
+import {
+  authenticateChat,
+  capabilityErrorResponse,
+  parseAndPrepareChat,
+  resolveChatAgent,
+  runPreparedChat,
+} from '@/lib/chat/request';
+import { CapabilityError } from '@/lib/chat/multimodal';
 
 export async function OPTIONS(req: NextRequest) {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }), req);
 }
 
 export async function POST(req: NextRequest) {
-  const { auth, errorResponse } = await authenticateApiRequest(req);
-  if (errorResponse) return errorResponse;
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const quotaDenied = await enforceUserQuota(auth.user, req);
-  if (quotaDenied) return quotaDenied;
+  const gated = await authenticateChat(req);
+  if ('error' in gated && gated.error) return gated.error;
+  const auth = gated.auth!;
 
   try {
     const rawBody = await req.json();
-    const parseResult = chatStreamSchema.safeParse(rawBody);
+    const parsed = await parseAndPrepareChat(auth, rawBody);
+    if ('error' in parsed && parsed.error) return parsed.error;
+    const { data, prepared } = parsed;
 
-    if (!parseResult.success) {
-      return NextResponse.json(
-        { error: 'Validation Error', details: parseResult.error.flatten().fieldErrors },
-        { status: 400 }
-      );
-    }
+    const resolved = await resolveChatAgent(auth, data.agentId, data.overrideProviderId);
+    if ('error' in resolved) return resolved.error;
 
-    const { message, agentId, conversationId, overrideModel, overrideProviderId, thinkingLevel } = parseResult.data;
-
-    if (conversationId) {
-      const existing = await DatabaseStore.getConversation(conversationId);
-      if (!existing || !(await userCanMutateConversation(auth, existing.conversation))) {
-        return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
-      }
-    }
-
-    let targetAgent = null;
-    if (agentId) {
-      targetAgent = await DatabaseStore.getAgent(agentId);
-      if (!targetAgent || !(await userCanExecuteAgent(auth, targetAgent))) {
-        return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
-      }
-    } else {
-      const agents = await DatabaseStore.listVisibleAgents(
-        auth.user?.id,
-        hasAdminPrivileges(auth),
-        hasAdminPrivileges(auth) ? auth.project.id : undefined
-      );
-      targetAgent = agents[0] || null;
-    }
-
-    if (!targetAgent) {
-      return NextResponse.json({ error: 'No active agent available for this project' }, { status: 400 });
-    }
-
-    if (overrideProviderId) {
-      targetAgent = {
-        ...targetAgent,
-        provider_id: overrideProviderId,
-      };
-    }
-
-    const stream = await AgentEngine.executeChatStream({
-      agent: targetAgent,
-      message,
-      conversationId,
-      projectId: auth.project.id,
-      apiKeyId: auth.apiKey?.id,
-      userId: auth.user?.id,
-      overrideModel,
-      overrideThinkingLevel: thinkingLevel,
-      useKnowledge: true,
+    const stream = await runPreparedChat({
+      auth,
+      agent: resolved.agent,
+      data,
+      prepared,
+      stream: true,
     });
 
     const origin = allowedCorsOrigin(req.headers.get('origin'));
@@ -99,6 +49,7 @@ export async function POST(req: NextRequest) {
     }
     return new Response(stream, { headers });
   } catch (err: unknown) {
+    if (err instanceof CapabilityError) return capabilityErrorResponse(err, false);
     return NextResponse.json(
       { error: 'Streaming Execution Failed', message: (err as Error).message },
       { status: 500 }

@@ -17,9 +17,30 @@ const ALLOWED_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'image/png',
   'image/jpeg',
+  'image/jpg',
   'image/webp',
 ]);
+const EXT_MIME: Record<string, string> = {
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.markdown': 'text/markdown',
+  '.json': 'application/json',
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
 const MAX_BYTES = 10 * 1024 * 1024;
+
+function resolveMime(file: File): string {
+  const declared = (file.type || '').toLowerCase();
+  if (ALLOWED_TYPES.has(declared)) return declared === 'image/jpg' ? 'image/jpeg' : declared;
+  const name = file.name.toLowerCase();
+  const ext = Object.keys(EXT_MIME).find((item) => name.endsWith(item));
+  return ext ? EXT_MIME[ext] : declared;
+}
 
 function publicFile(file: {
   id: string;
@@ -97,9 +118,14 @@ export async function POST(req: NextRequest) {
     if (uploaded.size > MAX_BYTES) {
       return applyCorsHeaders(NextResponse.json({ error: 'File exceeds 10MB limit' }, { status: 400 }));
     }
-    const mime = uploaded.type || 'application/octet-stream';
-    if (!ALLOWED_TYPES.has(mime)) {
-      return applyCorsHeaders(NextResponse.json({ error: 'Unsupported file type' }, { status: 400 }));
+    const mime = resolveMime(uploaded) || 'application/octet-stream';
+    if (!ALLOWED_TYPES.has(mime) && mime !== 'image/jpeg') {
+      return applyCorsHeaders(
+        NextResponse.json(
+          { error: 'Unsupported file type. Allowed: PNG, JPG, JPEG, WEBP, PDF, TXT, Markdown, DOCX.' },
+          { status: 400 }
+        )
+      );
     }
 
     const userId = auth!.user!.id;
