@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { DatabaseStore, DEMO_PRESET_KEY } from '../db/store';
 import { hashApiKey, checkRateLimit } from './api-key';
 import { Project, ApiKey, User } from '../types';
-import { getAdminEmail, getAdminSecret, isProduction } from '../config';
+import { getAdminSecret, isProduction } from '../config';
 import { isUserActive } from './rbac';
 import { applyCorsHeaders as applyOriginCors } from './cors';
 
@@ -45,7 +45,6 @@ export async function authenticateApiRequest(
 
   const cookieToken = req.cookies.get('omniagent_session')?.value;
   const looksLikeApiKey = Boolean(providedToken && /^(ua_live_|ua_test_)/.test(providedToken));
-  const configuredAdminEmail = getAdminEmail();
 
   let sessionUser = cookieToken ? await DatabaseStore.verifySessionToken(cookieToken) : null;
   if (!sessionUser && providedToken && !looksLikeApiKey) {
@@ -64,9 +63,7 @@ export async function authenticateApiRequest(
         ),
       };
     }
-    const isConfiguredAdmin =
-      Boolean(configuredAdminEmail) && sessionUser.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
-    const isAdmin = sessionUser.role === 'admin' || isConfiguredAdmin;
+    const isAdmin = sessionUser.role === 'admin';
     const sessionRate = checkRateLimit(`session:${sessionUser.id}`, isAdmin ? 300 : 60);
     if (!sessionRate.allowed) {
       return {

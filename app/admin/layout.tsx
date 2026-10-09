@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { DatabaseStore } from '@/lib/db/store';
 import { isUserActive } from '@/lib/auth/rbac';
-import { getAdminEmail } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,11 +18,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect('/');
   }
 
-  const configuredAdminEmail = getAdminEmail();
-  const isConfiguredAdmin =
-    Boolean(configuredAdminEmail) && user.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
-
-  if (user.role !== 'admin' && !isConfiguredAdmin) {
+  if (user.role !== 'admin') {
     redirect('/workspace');
   }
 

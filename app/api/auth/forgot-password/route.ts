@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
         NextResponse.json({ error: 'Validation Error', details: parse.error.flatten().fieldErrors }, { status: 400 })
       );
     }
-    const redirectTo = `${getAppUrl()}/workspace`;
+    const redirectTo = `${getAppUrl()}/auth/reset`;
     try {
       await DatabaseStore.requestPasswordReset(parse.data.email.trim().toLowerCase(), redirectTo);
     } catch {

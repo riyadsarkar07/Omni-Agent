@@ -10,6 +10,7 @@ import {
   requireAdmin,
   requireSessionUser,
 } from './rbac';
+import { userCanMutateConversation } from './access';
 import type { User } from '../types';
 
 const adminUser: User = {
@@ -148,6 +149,26 @@ describe('conversation and agent access', () => {
     );
     assert.equal(
       isConversationOwner({ user: adminUser }, { metadata: { owner_id: memberUser.id } }),
+      false
+    );
+  });
+
+  it('does not let sharees or unauthenticated isAdmin mutate owned conversations', async () => {
+    const owned = {
+      id: 'conv_owned',
+      project_id: 'proj_default_core',
+      agent_id: 'agent_general_assistant',
+      title: 'Owned',
+      metadata: { owner_id: memberUser.id },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    assert.equal(await userCanMutateConversation({ user: memberUser }, owned), true);
+    assert.equal(await userCanMutateConversation({ user: adminUser }, owned), false);
+    assert.equal(await userCanMutateConversation({ isAdmin: true, user: adminUser }, owned), true);
+    assert.equal(await userCanMutateConversation({ isAdmin: true }, owned), false);
+    assert.equal(
+      await userCanMutateConversation({ user: adminUser, project: { id: 'proj_default_core' } }, owned),
       false
     );
   });

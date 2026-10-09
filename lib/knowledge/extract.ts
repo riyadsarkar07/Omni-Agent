@@ -20,10 +20,23 @@ export function isExtractableMime(mime: string): boolean {
 
 async function extractPdf(bytes: Buffer): Promise<string> {
   try {
-    const mod = await import('pdf-parse');
-    const parser = (mod as { default?: (buf: Buffer) => Promise<{ text?: string }> }).default || (mod as unknown as (buf: Buffer) => Promise<{ text?: string }>);
-    const result = await parser(bytes);
-    return String(result?.text || '').trim();
+    const mod = (await import('pdf-parse')) as Record<string, unknown>;
+    const candidate = (mod.default || mod.PDFParse || mod) as unknown;
+
+    if (typeof candidate === 'function') {
+      const maybeCtor = candidate as { prototype?: { getText?: unknown } };
+      if (maybeCtor.prototype && typeof maybeCtor.prototype.getText === 'function') {
+        const Parser = candidate as new (opts: { data: Buffer }) => { getText: () => Promise<{ text?: string }> };
+        const parser = new Parser({ data: bytes });
+        const result = await parser.getText();
+        return String(result?.text || '').trim();
+      }
+      const parse = candidate as (buf: Buffer) => Promise<{ text?: string }>;
+      const result = await parse(bytes);
+      return String(result?.text || '').trim();
+    }
+
+    throw new Error('pdf-parse export was not a usable parser');
   } catch (err) {
     throw new Error(`PDF extraction is unavailable: ${(err as Error).message}`);
   }

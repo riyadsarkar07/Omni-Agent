@@ -1,5 +1,5 @@
 import { Agent, Conversation, User } from '../types';
-import { canAccessConversation, canExecuteAgent, hasAdminPrivileges, isConversationOwner } from './rbac';
+import { canAccessConversation, canExecuteAgent, conversationOwnerId, hasAdminPrivileges, isConversationOwner } from './rbac';
 import { DatabaseStore } from '../db/store';
 
 type AuthLike = { isAdmin?: boolean; user?: User | null; project?: { id: string } };
@@ -12,7 +12,11 @@ export async function userCanReadConversation(auth: AuthLike, conversation: Conv
 
 export async function userCanMutateConversation(auth: AuthLike, conversation: Conversation): Promise<boolean> {
   if (hasAdminPrivileges(auth)) return true;
-  return isConversationOwner(auth, conversation);
+  if (isConversationOwner(auth, conversation)) return true;
+  if (!auth.user?.id && auth.project?.id && conversation.project_id === auth.project.id) {
+    return !conversationOwnerId(conversation.metadata);
+  }
+  return false;
 }
 
 export async function userCanExecuteAgent(auth: AuthLike, agent: Agent): Promise<boolean> {

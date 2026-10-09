@@ -4,7 +4,7 @@ import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware'
 import { DatabaseStore } from '@/lib/db/store';
 import { AgentEngine } from '@/lib/agent-engine';
 import { hasAdminPrivileges } from '@/lib/auth/rbac';
-import { userCanExecuteAgent, userCanReadConversation } from '@/lib/auth/access';
+import { userCanExecuteAgent, userCanMutateConversation } from '@/lib/auth/access';
 import { enforceUserQuota } from '@/lib/auth/quota';
 
 const chatSchema = z.object({
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     if (conversationId) {
       const existing = await DatabaseStore.getConversation(conversationId);
-      if (!existing || !(await userCanReadConversation(auth, existing.conversation))) {
+      if (!existing || !(await userCanMutateConversation(auth, existing.conversation))) {
         return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
       }
     }

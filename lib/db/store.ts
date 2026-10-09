@@ -875,10 +875,7 @@ export class DatabaseStore {
           const isSystemAdmin =
             Boolean(configuredAdminEmail) && data.user.email.toLowerCase() === configuredAdminEmail!.toLowerCase();
           if (profile) {
-            return this.toPublicUser({
-              ...profile,
-              role: isSystemAdmin ? 'admin' : profile.role,
-            });
+            return this.toPublicUser(profile);
           }
           return this.toPublicUser(
             await this.upsertProfileRecord({
@@ -1013,6 +1010,7 @@ export class DatabaseStore {
     if (error || !data.user) throw new Error('Invalid or expired recovery session');
     const { error: updateError } = await admin.auth.admin.updateUserById(data.user.id, { password });
     if (updateError) throw updateError;
+    await this.revokeAllUserSessions(data.user.id);
     return true;
   }
 

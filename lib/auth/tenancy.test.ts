@@ -23,6 +23,9 @@ import { GET as getFileById, DELETE as deleteFile } from '../../app/api/v1/files
 import { GET as getShares, POST as postShare } from '../../app/api/v1/shares/route';
 import { DELETE as deleteShare } from '../../app/api/v1/shares/[id]/route';
 import { DELETE as deleteConversation } from '../../app/api/v1/conversations/[id]/route';
+import { POST as postChat } from '../../app/api/v1/chat/route';
+import { POST as searchKnowledge } from '../../app/api/v1/knowledge/search/route';
+import { uniqueUserCount } from './users-sync';
 
 const ORIGINAL_ADMIN_SECRET = process.env.ADMIN_SECRET;
 const ORIGINAL_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
@@ -427,5 +430,121 @@ describe('production tenancy and API security', () => {
     const disabledBody = await disabled.json();
     assert.equal(disabled.status, 409);
     assert.equal(disabledBody.error, LAST_ADMIN_ERROR);
+  });
+
+  it('keeps knowledge retrieval strictly user-scoped and removes it on delete', async () => {
+    const owner = await DatabaseStore.registerUser(`rag-owner-${Date.now()}@example.com`, 'password123', 'Owner');
+    const other = await DatabaseStore.registerUser(`rag-other-${Date.now()}@example.com`, 'password123', 'Other');
+    const form = new FormData();
+    form.set(
+      'file',
+      new File(['The secret project codeword is nebula-alpha.'], 'secret.md', { type: 'text/markdown' })
+    );
+    const uploadReq = new NextRequest('http://localhost/api/v1/files', { method: 'POST', body: form });
+    uploadReq.cookies.set('omniagent_session', owner.token);
+    const uploaded = await postFile(uploadReq);
+    assert.equal(uploaded.status, 201);
+    const uploadedBody = await uploaded.json();
+    const fileId = uploadedBody.file.id;
+    assert.equal(uploadedBody.file.indexed, true);
+
+    const ownerSearchReq = new NextRequest('http://localhost/api/v1/knowledge/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'nebula-alpha project codeword' }),
+    });
+    ownerSearchReq.cookies.set('omniagent_session', owner.token);
+    const ownerSearch = await searchKnowledge(ownerSearchReq);
+    const ownerHits = await ownerSearch.json();
+    assert.equal(ownerSearch.status, 200);
+    assert.ok(ownerHits.hits > 0);
+    assert.match(ownerHits.context, /nebula-alpha/);
+
+    const otherSearchReq = new NextRequest('http://localhost/api/v1/knowledge/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'nebula-alpha project codeword' }),
+    });
+    otherSearchReq.cookies.set('omniagent_session', other.token);
+    const otherSearch = await searchKnowledge(otherSearchReq);
+    const otherHits = await otherSearch.json();
+    assert.equal(otherSearch.status, 200);
+    assert.equal(otherHits.hits, 0);
+    assert.equal(otherHits.context, '');
+
+    const deleteReq = new NextRequest(`http://localhost/api/v1/files/${fileId}`, { method: 'DELETE' });
+    deleteReq.cookies.set('omniagent_session', owner.token);
+    const deleted = await deleteFile(deleteReq, { params: Promise.resolve({ id: fileId }) });
+    assert.equal(deleted.status, 200);
+
+    const afterDeleteReq = new NextRequest('http://localhost/api/v1/knowledge/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'nebula-alpha project codeword' }),
+    });
+    afterDeleteReq.cookies.set('omniagent_session', owner.token);
+    const afterDelete = await searchKnowledge(afterDeleteReq);
+    const afterHits = await afterDelete.json();
+    assert.equal(afterHits.hits, 0);
+  });
+
+  it('revokes conversation shares and blocks sharee writes through chat', async () => {
+    const owner = await DatabaseStore.registerUser(`share-revoke-${Date.now()}@example.com`, 'password123', 'Owner');
+    const other = await DatabaseStore.registerUser(`share-revoke-other-${Date.now()}@example.com`, 'password123', 'Other');
+    const conversation = await DatabaseStore.getOrCreateConversation(
+      undefined,
+      'proj_default_core',
+      'agent_general_assistant',
+      'Revocable chat',
+      owner.user.id
+    );
+
+    const createShareReq = new NextRequest('http://localhost/api/v1/shares', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ resourceType: 'conversation', resourceId: conversation.id, email: other.user.email }),
+    });
+    createShareReq.cookies.set('omniagent_session', owner.token);
+    const shared = await postShare(createShareReq);
+    assert.equal(shared.status, 201);
+    const shareId = (await shared.json()).share.id;
+
+    const otherGet = await getConversation(
+      requestWith(`http://localhost/api/v1/conversations/${conversation.id}`, {}, { omniagent_session: other.token }),
+      { params: Promise.resolve({ id: conversation.id }) }
+    );
+    assert.equal(otherGet.status, 200);
+
+    const writeReq = new NextRequest('http://localhost/api/v1/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'sharee should not write', conversationId: conversation.id }),
+    });
+    writeReq.cookies.set('omniagent_session', other.token);
+    const writeRes = await postChat(writeReq);
+    assert.equal(writeRes.status, 404);
+
+    const ownerRevoke = new NextRequest(`http://localhost/api/v1/shares/${shareId}`, { method: 'DELETE' });
+    ownerRevoke.cookies.set('omniagent_session', owner.token);
+    const revoked = await deleteShare(ownerRevoke, { params: Promise.resolve({ id: shareId }) });
+    assert.equal(revoked.status, 200);
+
+    const afterRevoke = await getConversation(
+      requestWith(`http://localhost/api/v1/conversations/${conversation.id}`, {}, { omniagent_session: other.token }),
+      { params: Promise.resolve({ id: conversation.id }) }
+    );
+    assert.equal(afterRevoke.status, 404);
+  });
+
+  it('counts unique users even when a profile row is missing from memory', async () => {
+    const first = await DatabaseStore.registerUser(`count-a-${Date.now()}@example.com`, 'password123', 'A');
+    const second = await DatabaseStore.registerUser(`count-b-${Date.now()}@example.com`, 'password123', 'B');
+    const users = await DatabaseStore.listUsers();
+    const ids = users.map((u) => u.id);
+    assert.ok(ids.includes(first.user.id));
+    assert.ok(ids.includes(second.user.id));
+    assert.equal(uniqueUserCount(users), new Set(ids).size);
+    const overview = await DatabaseStore.getPlatformOverview();
+    assert.equal(overview.totalUsers, uniqueUserCount(users));
   });
 });

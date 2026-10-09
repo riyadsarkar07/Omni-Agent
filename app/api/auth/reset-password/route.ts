@@ -20,7 +20,15 @@ export async function POST(req: NextRequest) {
         NextResponse.json({ error: 'Validation Error', details: parse.error.flatten().fieldErrors }, { status: 400 })
       );
     }
-    await DatabaseStore.updateOwnPassword(parse.data.accessToken, parse.data.password);
+    const updated = await DatabaseStore.updateOwnPassword(parse.data.accessToken, parse.data.password);
+    if (!updated) {
+      return applyCorsHeaders(
+        NextResponse.json(
+          { error: 'Password reset requires a configured Auth provider.' },
+          { status: 503 }
+        )
+      );
+    }
     return applyCorsHeaders(NextResponse.json({ message: 'Password updated' }));
   } catch (err: unknown) {
     return applyCorsHeaders(
