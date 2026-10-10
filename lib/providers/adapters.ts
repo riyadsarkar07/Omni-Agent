@@ -9,6 +9,7 @@ import { joinProviderUrl, defaultOfficialBaseUrl, normalizeProviderBaseUrl } fro
 import { buildProviderHeaders, fetchWithTimeout, readSafeError, sleep } from './http';
 import { sanitizeProviderError } from './secrets';
 import { toAnthropicContent, toGeminiParts, toOpenAIContent } from '../chat/provider-content';
+import { classifyProviderNetworkError, statusFromHttp, validateProviderEndpoint } from './endpoint';
 
 // Standard helper to parse SSE lines
 export async function* parseSSE(response: Response): AsyncGenerator<string, void, unknown> {
@@ -279,7 +280,8 @@ export class OpenAIAdapter {
   }
 
   static timeoutMs(provider: AIProvider): number {
-    return provider.metadata?.requestTimeoutMs || 20000;
+    const configured = Number(provider.metadata?.requestTimeoutMs || 20000);
+    return Math.min(30000, Math.max(3000, Number.isFinite(configured) ? configured : 20000));
   }
 
   static maxRetries(provider: AIProvider): number {
@@ -303,6 +305,14 @@ export class OpenAIAdapter {
         return res;
       } catch (err: unknown) {
         lastError = err as Error;
+        const message = (lastError.message || '').toLowerCase();
+        const fatalNetwork =
+          message.includes('not reachable') ||
+          message.includes('connection refused') ||
+          message.includes('dns lookup') ||
+          message.includes('cannot access omniroute') ||
+          message.includes('timed out');
+        if (fatalNetwork) break;
         if (attempt < retries) {
           await sleep(300 * (attempt + 1));
           continue;
@@ -314,8 +324,15 @@ export class OpenAIAdapter {
 
   static async testConnection(provider: AIProvider): Promise<ConnectionTestResult> {
     const baseUrl = this.resolveBaseUrl(provider);
-    if (!baseUrl) {
-      return { success: false, status: 'Invalid Base URL', error: 'Base URL is required for OpenAI-compatible providers' };
+    const endpoint = validateProviderEndpoint(baseUrl || provider.baseUrl || '');
+    if (!endpoint.ok) {
+      return {
+        success: false,
+        status: endpoint.status,
+        error: endpoint.error,
+        reachable: false,
+        authenticated: false,
+      };
     }
 
     const apiKey = (provider.apiKey || '').trim();
@@ -393,9 +410,33 @@ export class OpenAIAdapter {
       reachable = true;
 
       if (modelsRes.status === 401 || modelsRes.status === 403) {
+        const mapped = statusFromHttp(modelsRes.status);
         return {
           success: false,
-          status: 'Authentication Failed',
+          status: mapped.connection,
+          error: await readSafeError(modelsRes),
+          reachable: true,
+          authenticated: false,
+          models: discovered,
+        };
+      }
+
+      if (modelsRes.status === 404) {
+        return {
+          success: false,
+          status: 'Invalid Base URL',
+          error: `No OpenAI-compatible /models endpoint at ${joinProviderUrl(baseUrl, '/models')}. Normalize the Base URL to end at /v1 (for OmniRoute: http://localhost:20128/v1 locally, or a public HTTPS /v1 URL in production).`,
+          reachable: true,
+          authenticated: false,
+          models: discovered,
+        };
+      }
+
+      if (modelsRes.status >= 500) {
+        const mapped = statusFromHttp(modelsRes.status);
+        return {
+          success: false,
+          status: mapped.connection,
           error: await readSafeError(modelsRes),
           reachable: true,
           authenticated: false,
@@ -404,6 +445,7 @@ export class OpenAIAdapter {
       }
 
       if (modelsRes.ok) {
+        authenticated = true;
         try {
           const ids = collectModelIds(await modelsRes.json());
           for (const id of ids) {
@@ -412,6 +454,20 @@ export class OpenAIAdapter {
         } catch {
           // Body parse is optional for connectivity
         }
+        const selected = provider.defaultModel || discovered[0] || '';
+        const modelKnown = !provider.defaultModel || discovered.includes(provider.defaultModel);
+        return {
+          success: true,
+          status: 'Connected',
+          reachable: true,
+          authenticated: true,
+          modelAvailable: Boolean(selected) && (discovered.length === 0 || modelKnown),
+          models: discovered,
+          error:
+            provider.defaultModel && discovered.length > 0 && !modelKnown
+              ? `API key accepted. Model '${provider.defaultModel}' is not in the provider catalog.`
+              : undefined,
+        };
       } else if (isRateLimitedStatus(modelsRes.status)) {
         authenticated = true;
       }
@@ -546,11 +602,12 @@ export class OpenAIAdapter {
           models: discovered,
         };
       }
+      const classified = classifyProviderNetworkError(err, joinProviderUrl(baseUrl, '/models'), this.timeoutMs(provider));
       return {
         success: false,
-        status: 'Invalid Base URL',
-        error: sanitizeProviderError((err as Error).message || 'Connection failed'),
-        reachable,
+        status: classified.status,
+        error: sanitizeProviderError(classified.error),
+        reachable: classified.reachable,
         authenticated,
         models: discovered,
       };
@@ -560,6 +617,8 @@ export class OpenAIAdapter {
   static async listModels(provider: AIProvider): Promise<string[]> {
     const baseUrl = this.resolveBaseUrl(provider);
     if (!baseUrl) return provider.models || [];
+    const endpoint = validateProviderEndpoint(baseUrl);
+    if (!endpoint.ok) return provider.models || [];
     try {
       const res = await this.request(provider, joinProviderUrl(baseUrl, '/models'), {
         method: 'GET',
@@ -593,7 +652,8 @@ export class OpenAIAdapter {
   static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {
     const startTime = Date.now();
     const baseUrl = this.resolveBaseUrl(provider);
-    if (!baseUrl) throw new Error('Base URL is required for OpenAI-compatible providers');
+    const endpoint = validateProviderEndpoint(baseUrl || provider.baseUrl || '');
+    if (!endpoint.ok) throw new Error(endpoint.error || 'Base URL is required for OpenAI-compatible providers');
     const url = joinProviderUrl(baseUrl, '/chat/completions');
     const model = params.model || provider.defaultModel;
     if (!model) throw new Error('A Model ID is required');
@@ -614,6 +674,16 @@ export class OpenAIAdapter {
     });
 
     if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(await readSafeError(res));
+      }
+      if (res.status === 404) {
+        throw new Error(`Model '${model}' was not found on this OpenAI-compatible provider.`);
+      }
+      if (res.status === 400) {
+        const detail = await readSafeError(res);
+        throw new Error(detail.includes('model') ? detail : `Unsupported or invalid model '${model}': ${detail}`);
+      }
       throw new Error(await readSafeError(res));
     }
 
@@ -638,7 +708,8 @@ export class OpenAIAdapter {
   static async generateStream(provider: AIProvider, params: GenerateParams): Promise<ReadableStream<Uint8Array>> {
     const encoder = new TextEncoder();
     const baseUrl = this.resolveBaseUrl(provider);
-    if (!baseUrl) throw new Error('Base URL is required for OpenAI-compatible providers');
+    const endpoint = validateProviderEndpoint(baseUrl || provider.baseUrl || '');
+    if (!endpoint.ok) throw new Error(endpoint.error || 'Base URL is required for OpenAI-compatible providers');
     const url = joinProviderUrl(baseUrl, '/chat/completions');
     const model = params.model || provider.defaultModel;
     if (!model) throw new Error('A Model ID is required');
@@ -660,6 +731,16 @@ export class OpenAIAdapter {
     });
 
     if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(await readSafeError(res));
+      }
+      if (res.status === 404) {
+        throw new Error(`Model '${model}' was not found on this OpenAI-compatible provider.`);
+      }
+      if (res.status === 400) {
+        const detail = await readSafeError(res);
+        throw new Error(detail.includes('model') ? detail : `Unsupported or invalid model '${model}': ${detail}`);
+      }
       throw new Error(await readSafeError(res));
     }
 

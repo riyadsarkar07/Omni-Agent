@@ -671,6 +671,12 @@ export const ProvidersView: React.FC = () => {
                   disabled={editingProvider?.id === 'gemini'}
                   className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
                 />
+                {type === 'openai-compatible' ? (
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    Local OmniRoute: http://localhost:20128/v1 (only works when OmniAgent runs on the same computer).
+                    Vercel cannot reach localhost on your Windows PC. For production, save a separately configured public HTTPS OmniRoute Base URL. A public address will not be invented.
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-1.5">

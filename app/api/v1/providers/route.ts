@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { ModelRouter } from '@/lib/providers/router';
-import { getProviderTypeOption, protocolFromKind, isValidHttpUrl, PROVIDER_TYPE_OPTIONS } from '@/lib/providers/catalog';
+import { getProviderTypeOption, protocolFromKind, isValidHttpUrl, normalizeProviderBaseUrl, PROVIDER_TYPE_OPTIONS } from '@/lib/providers/catalog';
 import { ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
 import { requireAdmin, actorEmail, hasAdminPrivileges } from '@/lib/auth/rbac';
+import { validateProviderEndpoint } from '@/lib/providers/endpoint';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -57,13 +58,19 @@ export async function POST(req: NextRequest) {
     const type = (body.type || 'openai-compatible') as ProviderKind;
     const option = getProviderTypeOption(type);
     const protocol = (body.protocol as ProviderProtocol) || protocolFromKind(option.id);
-    const baseUrl = String(body.baseUrl || '').trim();
+    const baseUrl = normalizeProviderBaseUrl(String(body.baseUrl || '').trim());
     const scope = 'global';
 
-    if (protocol !== 'gemini' && baseUrl && !isValidHttpUrl(baseUrl)) {
-      return applyCorsHeaders(
-        NextResponse.json({ success: false, error: 'Base URL must be a valid http or https URL' }, { status: 400 })
-      );
+    if (protocol !== 'gemini' && baseUrl) {
+      if (!isValidHttpUrl(baseUrl)) {
+        return applyCorsHeaders(
+          NextResponse.json({ success: false, error: 'Base URL must be a valid http or https URL' }, { status: 400 })
+        );
+      }
+      const endpoint = validateProviderEndpoint(baseUrl);
+      if (!endpoint.ok) {
+        return applyCorsHeaders(NextResponse.json({ success: false, error: endpoint.error }, { status: 400 }));
+      }
     }
 
     const metadata: ProviderMetadata = {

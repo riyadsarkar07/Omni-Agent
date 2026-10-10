@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
 import { ModelRouter } from '@/lib/providers/router';
-import { protocolFromKind, getProviderTypeOption, isValidHttpUrl } from '@/lib/providers/catalog';
+import { protocolFromKind, getProviderTypeOption, isValidHttpUrl, normalizeProviderBaseUrl } from '@/lib/providers/catalog';
 import { AIProvider, ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
 import { requireAdmin } from '@/lib/auth/rbac';
+import { validateProviderEndpoint } from '@/lib/providers/endpoint';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -24,14 +25,32 @@ export async function POST(req: NextRequest) {
     const option = getProviderTypeOption(String(type));
     const protocol = (body.protocol as ProviderProtocol) || protocolFromKind(option.id);
     const baseUrl = String(body.baseUrl || '').trim();
+    const normalizedBaseUrl = baseUrl ? normalizeProviderBaseUrl(baseUrl) : '';
 
-    if (protocol !== 'gemini' && baseUrl && !isValidHttpUrl(baseUrl)) {
-      return applyCorsHeaders(
-        NextResponse.json(
-          { success: false, status: 'Invalid Base URL', error: 'Base URL must be a valid http or https URL' },
-          { status: 400 }
-        )
-      );
+    if (protocol !== 'gemini' && normalizedBaseUrl) {
+      if (!isValidHttpUrl(normalizedBaseUrl)) {
+        return applyCorsHeaders(
+          NextResponse.json(
+            { success: false, status: 'Invalid Base URL', error: 'Base URL must be a valid http or https URL' },
+            { status: 400 }
+          )
+        );
+      }
+      const endpoint = validateProviderEndpoint(normalizedBaseUrl);
+      if (!endpoint.ok) {
+        return applyCorsHeaders(
+          NextResponse.json(
+            {
+              success: false,
+              status: endpoint.status,
+              error: endpoint.error,
+              reachable: false,
+              authenticated: false,
+            },
+            { status: 400 }
+          )
+        );
+      }
     }
 
     const metadata: ProviderMetadata = {
@@ -52,7 +71,7 @@ export async function POST(req: NextRequest) {
       name: body.name || stored?.name || 'Unsaved Provider',
       type: option.id,
       protocol,
-      baseUrl: baseUrl || stored?.baseUrl || '',
+      baseUrl: normalizedBaseUrl || stored?.baseUrl || '',
       apiKey,
       enabled: true,
       defaultModel: body.model || body.defaultModel || stored?.defaultModel || '',

@@ -50,7 +50,7 @@ export function hasStoredProviderSecret(value?: string | null): boolean {
 const SECRET_PATTERN =
   /(sk-[a-zA-Z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._~+/=-]{8,}|api[_-]?key["']?\s*[:=]\s*["']?[^"'\s]+)/gi;
 
-export function sanitizeProviderError(message: string, maxLength = 280): string {
+export function sanitizeProviderError(message: string, maxLength = 600): string {
   if (!message) return 'Connection failed';
   const cleaned = message.replace(SECRET_PATTERN, '[redacted]').replace(/\s+/g, ' ').trim();
   if (cleaned.length <= maxLength) return cleaned;

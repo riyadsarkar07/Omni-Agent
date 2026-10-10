@@ -42,9 +42,9 @@ export const PROVIDER_TYPE_OPTIONS: ProviderTypeOption[] = [
     id: 'openai-compatible',
     label: 'OpenAI Compatible',
     protocol: 'openai',
-    placeholderUrl: 'https://openrouter.ai/api/v1',
+    placeholderUrl: 'http://localhost:20128/v1',
     defaultCapabilities: ['TEXT', 'STREAMING', 'TOOL_CALLING', 'FUNCTION_CALLING'],
-    description: 'Any OpenAI-compatible gateway (OpenRouter, Groq, Together, local, etc.)',
+    description: 'Any OpenAI-compatible gateway (OmniRoute, OpenRouter, Groq, Together, local, etc.)',
   },
   {
     id: 'anthropic-compatible',
@@ -99,24 +99,48 @@ export function kindFromProtocol(protocol?: ProviderProtocol, existing?: Provide
 
 export function normalizeProviderBaseUrl(baseUrl: string): string {
   let base = (baseUrl || '').trim().replace(/\/+$/, '');
-  base = base.replace(/\/(chat\/completions|messages|completions)$/i, '');
+  base = base.replace(/\/(chat\/completions|messages|completions|models|embeddings|key)$/i, '');
   try {
     const parsed = new URL(base);
-    if (parsed.hostname.toLowerCase().includes('openrouter.ai') && !parsed.pathname.includes('/api/')) {
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes('openrouter.ai') && !parsed.pathname.includes('/api/')) {
       parsed.pathname = '/api/v1';
-      base = parsed.toString().replace(/\/+$/, '');
+      return parsed.toString().replace(/\/+$/, '');
     }
+    parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '/';
+    return parsed.toString().replace(/\/+$/, '');
   } catch {
-    // keep original
+    return base;
   }
-  return base;
 }
 
 export function joinProviderUrl(baseUrl: string, path: string): string {
   const base = normalizeProviderBaseUrl(baseUrl);
-  const suffix = path.replace(/^\/+/, '');
+  let suffix = path.replace(/^\/+/, '');
   if (!base) return `/${suffix}`;
-  return `${base}/${suffix}`;
+  try {
+    const parsed = new URL(base);
+    const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
+    const suffixParts = suffix.split('/').filter(Boolean);
+    const pathParts = pathname.split('/').filter(Boolean);
+    while (suffixParts.length && pathParts[pathParts.length - 1] === suffixParts[0]) {
+      suffixParts.shift();
+    }
+    suffix = suffixParts.join('/');
+    parsed.pathname = suffix ? `${pathname === '/' ? '' : pathname}/${suffix}` : pathname;
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    if (!suffix) return base;
+    const baseTail = base.split('/').pop() || '';
+    const suffixHead = suffix.split('/')[0];
+    if (baseTail && baseTail.toLowerCase() === suffixHead.toLowerCase()) {
+      const rest = suffix.split('/').slice(1).join('/');
+      return rest ? `${base}/${rest}` : base;
+    }
+    return `${base}/${suffix}`;
+  }
 }
 
 export function isValidHttpUrl(value: string): boolean {

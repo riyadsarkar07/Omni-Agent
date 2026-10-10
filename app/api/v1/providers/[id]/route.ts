@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiRequest, applyCorsHeaders } from '@/lib/auth/middleware';
 import { DatabaseStore } from '@/lib/db/store';
-import { getProviderTypeOption, protocolFromKind, isValidHttpUrl } from '@/lib/providers/catalog';
+import { getProviderTypeOption, protocolFromKind, isValidHttpUrl, normalizeProviderBaseUrl } from '@/lib/providers/catalog';
 import { ProviderKind, ProviderMetadata, ProviderProtocol } from '@/lib/providers/types';
 import { sanitizeProviderError } from '@/lib/providers/secrets';
 import { requireAdmin, actorEmail } from '@/lib/auth/rbac';
+import { validateProviderEndpoint } from '@/lib/providers/endpoint';
 
 export async function OPTIONS() {
   return applyCorsHeaders(new NextResponse(null, { status: 204 }));
@@ -49,12 +50,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const type = (body.type as ProviderKind) || existing.type;
     const option = getProviderTypeOption(type);
     const protocol = (body.protocol as ProviderProtocol) || existing.protocol || protocolFromKind(option.id);
-    const baseUrl = body.baseUrl !== undefined ? String(body.baseUrl).trim() : existing.baseUrl;
+    const baseUrl = body.baseUrl !== undefined ? normalizeProviderBaseUrl(String(body.baseUrl).trim()) : existing.baseUrl;
 
-    if (protocol !== 'gemini' && baseUrl && !isValidHttpUrl(baseUrl)) {
-      return applyCorsHeaders(
-        NextResponse.json({ success: false, error: 'Base URL must be a valid http or https URL' }, { status: 400 })
-      );
+    if (protocol !== 'gemini' && baseUrl) {
+      if (!isValidHttpUrl(baseUrl)) {
+        return applyCorsHeaders(
+          NextResponse.json({ success: false, error: 'Base URL must be a valid http or https URL' }, { status: 400 })
+        );
+      }
+      const endpoint = validateProviderEndpoint(baseUrl);
+      if (!endpoint.ok) {
+        return applyCorsHeaders(NextResponse.json({ success: false, error: endpoint.error }, { status: 400 }));
+      }
     }
 
     const metadata: ProviderMetadata = {

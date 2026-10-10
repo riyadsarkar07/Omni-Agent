@@ -3,6 +3,7 @@ import { GeminiAdapter, OpenAIAdapter, AnthropicAdapter, CustomHTTPAdapter } fro
 import { DatabaseStore } from '../db/store';
 import { sanitizeProviderError } from './secrets';
 import { isValidHttpUrl } from './catalog';
+import { validateProviderEndpoint } from './endpoint';
 
 function isGeminiModelId(model?: string): boolean {
   const value = (model || '').toLowerCase();
@@ -93,11 +94,19 @@ export class ModelRouter {
     }
     const protocol = provider.protocol || 'openai';
     const needsUrl = protocol !== 'gemini' || Boolean(provider.baseUrl);
-    if (needsUrl && provider.baseUrl && !isValidHttpUrl(provider.baseUrl)) {
-      return { ok: false, error: 'Base URL must be a valid http or https URL' };
-    }
     if (protocol !== 'gemini' && !provider.baseUrl?.trim() && provider.type !== 'openai' && provider.type !== 'anthropic' && provider.type !== 'gemini') {
       return { ok: false, error: 'Base URL is required for this provider type' };
+    }
+    if (needsUrl && provider.baseUrl) {
+      if (!isValidHttpUrl(provider.baseUrl)) {
+        return { ok: false, error: 'Base URL must be a valid http or https URL' };
+      }
+      if (protocol !== 'gemini') {
+        const endpoint = validateProviderEndpoint(provider.baseUrl);
+        if (!endpoint.ok) {
+          return { ok: false, error: endpoint.error };
+        }
+      }
     }
     return { ok: true };
   }

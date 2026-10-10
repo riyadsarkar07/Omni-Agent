@@ -1,6 +1,7 @@
 import { AIProvider } from './types';
 import { sanitizeProviderError } from './secrets';
 import { getAppUrl } from '../config';
+import { classifyProviderNetworkError } from './endpoint';
 
 export async function fetchWithTimeout(
   url: string,
@@ -12,11 +13,8 @@ export async function fetchWithTimeout(
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Network request failed';
-    if (message.toLowerCase().includes('abort')) {
-      throw new Error(`Request timed out after ${timeoutMs}ms`);
-    }
-    throw err;
+    const classified = classifyProviderNetworkError(err, url, timeoutMs);
+    throw new Error(classified.error);
   } finally {
     clearTimeout(timer);
   }
