@@ -4,6 +4,7 @@ import { DatabaseStore } from '../db/store';
 import { sanitizeProviderError } from './secrets';
 import { isValidHttpUrl } from './catalog';
 import { validateProviderEndpoint } from './endpoint';
+import { runOpenAICompatibleReadiness } from './readiness';
 
 function isGeminiModelId(model?: string): boolean {
   const value = (model || '').toLowerCase();
@@ -191,7 +192,7 @@ export class ModelRouter {
       case 'gemini':
         return await GeminiAdapter.testConnection(hydrated);
       case 'openai':
-        return await OpenAIAdapter.testConnection(hydrated);
+        return await runOpenAICompatibleReadiness(hydrated);
       case 'anthropic':
         return await AnthropicAdapter.testConnection(hydrated);
       case 'custom':

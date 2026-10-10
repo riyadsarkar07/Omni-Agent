@@ -43,13 +43,24 @@ interface HeaderPair {
   value: string;
 }
 
+interface ReadinessCheckResult {
+  id: string;
+  label: string;
+  passed: boolean;
+  skipped?: boolean;
+  detail?: string;
+}
+
 interface TestResult {
   success: boolean;
   reachable?: boolean;
   authenticated?: boolean;
   modelAvailable?: boolean;
+  chatVerified?: boolean;
+  streamingVerified?: boolean;
   error?: string | null;
   latencyMs?: number | null;
+  checks?: ReadinessCheckResult[];
 }
 
 function parseHeaders(pairs: HeaderPair[]): Record<string, string> {
@@ -278,8 +289,11 @@ export const ProvidersView: React.FC = () => {
         reachable: data.reachable,
         authenticated: data.authenticated,
         modelAvailable: data.modelAvailable,
+        chatVerified: data.chatVerified,
+        streamingVerified: data.streamingVerified,
         error: data.error,
         latencyMs: data.latencyMs,
+        checks: Array.isArray(data.checks) ? data.checks : [],
       });
       if (Array.isArray(data.models) && data.models.length > 0) {
         setDiscoveredModels(data.models);
@@ -416,7 +430,7 @@ export const ProvidersView: React.FC = () => {
             API Configuration
           </h2>
           <p className="text-xs text-zinc-400">
-            Add unlimited third-party APIs (OpenRouter, Groq, Together, local). Saved providers sync across phone and laptop.
+            Add unlimited third-party APIs (OpenRouter, Groq, Together, OmniRoute). Saved keys stay server-side. Localhost OmniRoute is for local OmniAgent only; Vercel needs a separate public HTTPS Base URL.
           </p>
         </div>
         <button
@@ -673,8 +687,7 @@ export const ProvidersView: React.FC = () => {
                 />
                 {type === 'openai-compatible' ? (
                   <p className="text-[11px] text-zinc-500 leading-relaxed">
-                    Local OmniRoute: http://localhost:20128/v1 (only works when OmniAgent runs on the same computer).
-                    Vercel cannot reach localhost on your Windows PC. For production, save a separately configured public HTTPS OmniRoute Base URL. A public address will not be invented.
+                    Local OmniRoute stays at http://localhost:20128/v1 and only works when OmniAgent runs on the same computer. Vercel cannot reach localhost on your Windows PC, and a public URL will not be invented. For production, save a separate HTTPS tunnel or VPS Base URL (see OMNIROUTE.md). Do not expose the OmniRoute dashboard or an unauthenticated API.
                   </p>
                 ) : null}
               </div>
@@ -844,11 +857,21 @@ export const ProvidersView: React.FC = () => {
               {draftTest && (
                 <div className={`rounded-xl border p-3 text-xs space-y-1 ${draftTest.success ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-rose-500/20 bg-rose-500/10 text-rose-300'}`}>
                   <div className="font-bold">{draftTest.success ? 'Connection successful' : 'Connection failed'}</div>
-                  {draftTest.success ? (
+                  {draftTest.checks && draftTest.checks.length > 0 ? (
+                    <ul className="space-y-1">
+                      {draftTest.checks.map((check) => (
+                        <li key={check.id}>
+                          {check.skipped ? 'skipped' : check.passed ? 'pass' : 'fail'} — {check.label}
+                          {check.detail ? `: ${check.detail}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : draftTest.success ? (
                     <>
                       <div>Provider reachable</div>
                       {draftTest.authenticated !== false ? <div>API key accepted</div> : null}
                       {draftTest.modelAvailable ? <div>Model available</div> : <div>Model not verified — you can still save this provider</div>}
+                      {draftTest.chatVerified ? <div>Chat completion verified</div> : null}
                       {draftTest.error ? <div className="text-amber-300">{draftTest.error}</div> : null}
                     </>
                   ) : (

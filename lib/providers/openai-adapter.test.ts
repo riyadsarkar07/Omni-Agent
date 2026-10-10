@@ -3,7 +3,7 @@ import { afterEach, describe, it } from 'node:test';
 import { OpenAIAdapter } from './adapters';
 import { ModelRouter } from './router';
 import { joinProviderUrl } from './catalog';
-import { setCloudRuntimeOverride } from './endpoint';
+import { setCloudRuntimeOverride, setDnsLookupOverride } from './endpoint';
 import type { AIProvider } from './types';
 
 const ORIGINAL_FETCH = globalThis.fetch;
@@ -36,6 +36,7 @@ function jsonResponse(status: number, body: unknown): Response {
 afterEach(() => {
   globalThis.fetch = ORIGINAL_FETCH;
   setCloudRuntimeOverride(undefined);
+  setDnsLookupOverride(undefined);
 });
 
 describe('OpenAI compatible OmniRoute adapter', { concurrency: false }, () => {
@@ -143,6 +144,58 @@ describe('OpenAI compatible OmniRoute adapter', { concurrency: false }, () => {
         }),
       /not found/
     );
+  });
+
+  it('lists models and streams chat from a public HTTPS OmniRoute URL', async () => {
+    setCloudRuntimeOverride(true);
+    setDnsLookupOverride(async () => [{ address: '93.184.216.34' }]);
+    const seen: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      seen.push(url);
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get('authorization'), 'Bearer omni-test-key');
+      if (url.endsWith('/models')) {
+        return jsonResponse(200, { data: [{ id: 'omni-fast' }] });
+      }
+      const body = JSON.parse(String(init?.body || '{}'));
+      if (body.stream) {
+        return new Response('data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n', {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      }
+      return jsonResponse(200, {
+        id: 'chat_remote',
+        choices: [{ message: { content: 'pong' } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+    }) as typeof fetch;
+
+    const remote = omniProvider({ baseUrl: 'https://omniroute.example.com/v1' });
+    const listed = await OpenAIAdapter.listModels(remote);
+    assert.deepEqual(listed, ['omni-fast']);
+    const generated = await OpenAIAdapter.generate(remote, {
+      model: 'omni-fast',
+      messages: [{ role: 'user', content: 'ping' }],
+    });
+    assert.equal(generated.text, 'pong');
+    const stream = await OpenAIAdapter.generateStream(remote, {
+      model: 'omni-fast',
+      messages: [{ role: 'user', content: 'ping' }],
+    });
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let output = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      output += decoder.decode(value, { stream: true });
+    }
+    assert.match(output, /"type":"chunk"/);
+    assert.match(output, /"type":"done"/);
+    assert.ok(seen.includes('https://omniroute.example.com/v1/models'));
+    assert.ok(seen.includes('https://omniroute.example.com/v1/chat/completions'));
   });
 
   it('uses the existing router for openai-compatible providers', async () => {

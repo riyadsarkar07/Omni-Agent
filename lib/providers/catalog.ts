@@ -44,7 +44,7 @@ export const PROVIDER_TYPE_OPTIONS: ProviderTypeOption[] = [
     protocol: 'openai',
     placeholderUrl: 'http://localhost:20128/v1',
     defaultCapabilities: ['TEXT', 'STREAMING', 'TOOL_CALLING', 'FUNCTION_CALLING'],
-    description: 'Any OpenAI-compatible gateway (OmniRoute, OpenRouter, Groq, Together, local, etc.)',
+    description: 'Any OpenAI-compatible gateway. OmniRoute local: http://localhost:20128/v1. Production: a public HTTPS /v1 URL you control (never invented from localhost).',
   },
   {
     id: 'anthropic-compatible',

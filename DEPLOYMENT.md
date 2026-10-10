@@ -39,6 +39,8 @@ git push -u origin main
 6. When deployment finishes, your REST API is live at:
    `https://your-domain.vercel.app/api/v1`
 
+Vercel cannot reach OmniRoute at `http://localhost:20128/v1` on your Windows PC. Keep that URL for local OmniAgent only. For production, save a separate public HTTPS Base URL (Cloudflare Tunnel or a locked-down VPS) as documented in `OMNIROUTE.md`. A public URL will not be invented. Do not expose the OmniRoute dashboard or an unauthenticated API.
+
 ---
 
 ## 3. Post-Deployment Verification

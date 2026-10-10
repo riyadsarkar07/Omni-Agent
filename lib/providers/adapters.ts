@@ -236,7 +236,7 @@ export class GeminiAdapter {
             encoder.encode(
               `data: ${JSON.stringify({
                 type: 'error',
-                error: err.message || 'Stream processing failed',
+                error: sanitizeProviderError(err.message || 'Stream processing failed'),
               })}\n\n`
             )
           );
@@ -311,7 +311,11 @@ export class OpenAIAdapter {
           message.includes('connection refused') ||
           message.includes('dns lookup') ||
           message.includes('cannot access omniroute') ||
-          message.includes('timed out');
+          message.includes('timed out') ||
+          message.includes('dns rebinding') ||
+          message.includes('redirect') ||
+          message.includes('tls verification') ||
+          message.includes('not allowed as a provider');
         if (fatalNetwork) break;
         if (attempt < retries) {
           await sleep(300 * (attempt + 1));
@@ -332,6 +336,7 @@ export class OpenAIAdapter {
         error: endpoint.error,
         reachable: false,
         authenticated: false,
+        kind: endpoint.kind,
       };
     }
 
@@ -372,6 +377,7 @@ export class OpenAIAdapter {
             reachable: true,
             authenticated: false,
             models: discovered,
+            kind: 'auth',
           };
         }
         if (keyRes.ok || isRateLimitedStatus(keyRes.status)) {
@@ -418,6 +424,7 @@ export class OpenAIAdapter {
           reachable: true,
           authenticated: false,
           models: discovered,
+          kind: mapped.kind,
         };
       }
 
@@ -610,6 +617,7 @@ export class OpenAIAdapter {
         reachable: classified.reachable,
         authenticated,
         models: discovered,
+        kind: classified.kind,
       };
     }
   }
@@ -785,7 +793,7 @@ export class OpenAIAdapter {
             encoder.encode(
               `data: ${JSON.stringify({
                 type: 'error',
-                error: err.message || 'Stream processing failed',
+                error: sanitizeProviderError(err.message || 'Stream processing failed'),
               })}\n\n`
             )
           );
@@ -1055,7 +1063,7 @@ export class AnthropicAdapter {
             encoder.encode(
               `data: ${JSON.stringify({
                 type: 'error',
-                error: err.message || 'Stream processing failed',
+                error: sanitizeProviderError(err.message || 'Stream processing failed'),
               })}\n\n`
             )
           );
@@ -1211,7 +1219,7 @@ export class CustomHTTPAdapter {
             encoder.encode(
               `data: ${JSON.stringify({
                 type: 'error',
-                error: err.message || 'Stream processing failed',
+                error: sanitizeProviderError(err.message || 'Stream processing failed'),
               })}\n\n`
             )
           );

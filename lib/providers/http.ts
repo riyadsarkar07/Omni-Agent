@@ -1,7 +1,9 @@
 import { AIProvider } from './types';
 import { sanitizeProviderError } from './secrets';
 import { getAppUrl } from '../config';
-import { classifyProviderNetworkError } from './endpoint';
+import { assertSafeProviderFetch, classifyProviderNetworkError, validateRedirectLocation } from './endpoint';
+
+const MAX_SAME_HOST_REDIRECTS = 3;
 
 export async function fetchWithTimeout(
   url: string,
@@ -11,7 +13,36 @@ export async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const safety = await assertSafeProviderFetch(url);
+    if (!safety.ok) {
+      throw new Error(safety.error || 'That host is not allowed as a provider endpoint.');
+    }
+
+    let current = url;
+    for (let hop = 0; hop <= MAX_SAME_HOST_REDIRECTS; hop++) {
+      const res = await fetch(current, {
+        ...init,
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+      if (res.status < 300 || res.status >= 400) {
+        return res;
+      }
+      const location = res.headers.get('location');
+      const redirect = validateRedirectLocation(current, location);
+      if (!redirect.ok || !redirect.url) {
+        throw new Error(redirect.error || 'Provider redirect was blocked.');
+      }
+      if (hop === MAX_SAME_HOST_REDIRECTS) {
+        throw new Error('Provider redirected too many times. Redirects to private, loopback, or other hosts are blocked.');
+      }
+      const nextSafety = await assertSafeProviderFetch(redirect.url);
+      if (!nextSafety.ok) {
+        throw new Error(nextSafety.error || 'Redirect target is not allowed as a provider endpoint.');
+      }
+      current = redirect.url;
+    }
+    throw new Error('Provider redirect was blocked.');
   } catch (err: unknown) {
     const classified = classifyProviderNetworkError(err, url, timeoutMs);
     throw new Error(classified.error);

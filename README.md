@@ -54,6 +54,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the Admin Dashboard 
 
 * [Installation Guide](./INSTALLATION.md)
 * [Vercel & GitHub Deployment Guide](./DEPLOYMENT.md)
+* [Secure OmniRoute Remote Connection](./OMNIROUTE.md)
 * [REST API Documentation & Endpoints](./API_DOCUMENTATION.md)
 * [TypeScript SDK Usage Guide](./SDK_USAGE.md)
 * [Security & Threat Model](./SECURITY.md)

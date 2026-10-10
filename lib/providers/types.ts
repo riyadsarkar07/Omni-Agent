@@ -135,6 +135,21 @@ export interface NormalizedResponse {
   metadata?: Record<string, any>;
 }
 
+export type ReadinessCheckId =
+  | 'endpoint'
+  | 'models'
+  | 'chat'
+  | 'stream';
+
+export interface ReadinessCheck {
+  id: ReadinessCheckId;
+  label: string;
+  passed: boolean;
+  skipped?: boolean;
+  detail?: string;
+  kind?: string;
+}
+
 export interface ConnectionTestResult {
   success: boolean;
   status: ConnectionStatus;
@@ -144,4 +159,8 @@ export interface ConnectionTestResult {
   modelAvailable?: boolean;
   models?: string[];
   latencyMs?: number;
+  kind?: string;
+  streamingVerified?: boolean;
+  chatVerified?: boolean;
+  checks?: ReadinessCheck[];
 }

@@ -48,11 +48,15 @@ export function hasStoredProviderSecret(value?: string | null): boolean {
 }
 
 const SECRET_PATTERN =
-  /(sk-[a-zA-Z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._~+/=-]{8,}|api[_-]?key["']?\s*[:=]\s*["']?[^"'\s]+)/gi;
+  /(sk-[a-zA-Z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._~+/=-]{8,}|api[_-]?key["']?\s*[:=]\s*["']?[^"'\s]+|enc:v1:[A-Za-z0-9+/=]+)/gi;
 
 export function sanitizeProviderError(message: string, maxLength = 600): string {
   if (!message) return 'Connection failed';
-  const cleaned = message.replace(SECRET_PATTERN, '[redacted]').replace(/\s+/g, ' ').trim();
+  const cleaned = message
+    .replace(/\/\/([^/@\s]+):([^/@\s]+)@/g, '//[redacted]:[redacted]@')
+    .replace(SECRET_PATTERN, '[redacted]')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (cleaned.length <= maxLength) return cleaned;
   return `${cleaned.slice(0, maxLength)}...`;
 }

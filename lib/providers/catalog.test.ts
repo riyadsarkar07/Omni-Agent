@@ -15,6 +15,15 @@ describe('provider URL normalization', () => {
       joinProviderUrl('http://localhost:20128/v1', '/chat/completions'),
       'http://localhost:20128/v1/chat/completions'
     );
+    assert.equal(normalizeProviderBaseUrl('https://omniroute.example.com/v1/'), 'https://omniroute.example.com/v1');
+    assert.equal(
+      joinProviderUrl('https://omniroute.example.com/v1', '/models'),
+      'https://omniroute.example.com/v1/models'
+    );
+    assert.equal(
+      joinProviderUrl('https://omniroute.example.com/v1', '/chat/completions'),
+      'https://omniroute.example.com/v1/chat/completions'
+    );
   });
 
   it('normalizes OpenRouter to /api/v1 without duplicating /models', () => {

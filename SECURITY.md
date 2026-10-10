@@ -31,6 +31,13 @@ OmniAgent Platform is architected with defense-in-depth principles for enterpris
 
 7. **Log Redaction**:
    * Usage logs redact raw message prompts, user credentials, and client IP addresses before returning analytics to the dashboard or API consumers.
+   * Provider API keys are encrypted at rest, never returned to the browser, and stripped from error messages.
+
+8. **Provider Endpoint SSRF Controls**:
+   * Cloud runtimes (Vercel) reject localhost, private, loopback, link-local, and cloud-metadata Base URLs.
+   * Production OpenAI-compatible providers must use HTTPS. Local `http://localhost:20128/v1` remains valid only when OmniAgent runs on the same computer.
+   * Outbound provider fetches resolve DNS before connecting, block rebinding to private addresses, and refuse redirects to another host or to a private/metadata target.
+   * TLS verification is not disabled. CORS allowlists are unchanged.
 
 ---
 

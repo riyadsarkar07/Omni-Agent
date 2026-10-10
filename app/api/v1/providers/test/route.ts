@@ -107,7 +107,11 @@ export async function POST(req: NextRequest) {
         reachable: Boolean(result.reachable ?? result.success),
         authenticated: Boolean(result.authenticated ?? result.success),
         modelAvailable: Boolean(result.modelAvailable ?? result.success),
+        chatVerified: Boolean(result.chatVerified),
+        streamingVerified: result.streamingVerified,
         models: result.models || [],
+        checks: result.checks || [],
+        kind: result.kind || null,
         latencyMs: result.success ? latencyMs : null,
         error: result.error ? sanitizeProviderError(result.error) : null,
       })
