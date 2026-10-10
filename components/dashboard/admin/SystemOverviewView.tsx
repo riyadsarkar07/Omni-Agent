@@ -74,7 +74,7 @@ export const SystemOverviewView: React.FC = () => {
           </div>
           <div className="glass-card rounded-2xl p-5 border border-white/5 text-xs text-zinc-400 space-y-1">
             <div>Database: {overview.databaseAdapter} ({overview.databaseStatus})</div>
-            <div>Gemini engine: {overview.geminiConfigured ? 'configured' : 'unconfigured'}</div>
+            <div>Gemini engine: {overview.geminiConfigured ? 'configured (not probed)' : 'unconfigured'}</div>
             <div>Failed requests: {overview.failedRequests}</div>
           </div>
         </>

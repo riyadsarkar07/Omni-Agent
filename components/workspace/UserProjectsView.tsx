@@ -21,7 +21,9 @@ export const UserProjectsView: React.FC<UserProjectsViewProps> = ({
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
       <div>
         <h2 className="text-2xl font-extrabold text-white tracking-tight">Projects</h2>
-        <p className="text-sm text-zinc-400 mt-1">Workspaces your chats and agents belong to.</p>
+        <p className="text-sm text-zinc-400 mt-1">
+          Platform workspaces assigned to your account. Project create/delete is an Admin Console action.
+        </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {projects.map((project) => {

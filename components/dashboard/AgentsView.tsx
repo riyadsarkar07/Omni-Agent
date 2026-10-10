@@ -53,6 +53,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<AIProvider[]>([]);
+  const [isPublished, setIsPublished] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/v1/providers')
@@ -86,6 +87,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setMemoryEnabled(true);
     setToolsEnabled(['calculator', 'get_current_time']);
     setProjectId(activeProject?.id || projects[0]?.id || '');
+    setIsPublished(false);
     setError(null);
     setIsModalOpen(true);
   };
@@ -104,6 +106,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setMemoryEnabled(agent.memory_enabled);
     setToolsEnabled(agent.tools_enabled || []);
     setProjectId(agent.project_id);
+    setIsPublished(Boolean(agent.is_published));
     setError(null);
     setIsModalOpen(true);
   };
@@ -138,6 +141,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         memory_enabled: memoryEnabled,
         tools_enabled: toolsEnabled,
         project_id: projectId,
+        is_published: isPublished,
       };
 
       const endpoint = editingAgent ? `/api/v1/agents/${editingAgent.id}` : '/api/v1/agents';
@@ -145,7 +149,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
       const res = await apiFetch(endpoint, {
         method,
-        headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
@@ -163,12 +167,29 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     }
   };
 
+  const handleTogglePublish = async (agent: Agent) => {
+    try {
+      const res = await apiFetch(`/api/v1/agents/${agent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_published: !agent.is_published }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || data.error || 'Failed to update publish state');
+      }
+      onRefresh();
+    } catch (err: unknown) {
+      alert((err as Error).message);
+    }
+  };
+
   const handleDelete = async (agentId: string) => {
     if (!confirm('Are you sure you want to delete this agent?')) return;
     try {
       await apiFetch(`/api/v1/agents/${agentId}`, {
         method: 'DELETE',
-        headers: { 'x-internal-admin': 'true' },
+        headers: { 'Content-Type': 'application/json' },
       });
       onRefresh();
     } catch (err: unknown) {
@@ -247,6 +268,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-white/5 border border-white/10 uppercase tracking-widest text-zinc-300">
                       {agent.model}
                     </span>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-md border uppercase tracking-widest ${
+                      agent.is_published
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                    }`}>
+                      {agent.is_published ? 'Published' : 'Unpublished'}
+                    </span>
                     {isHighThinking && (
                       <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center gap-1 uppercase tracking-widest">
                         <Brain className="w-3 h-3" /> HIGH THINKING
@@ -276,6 +304,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                   </button>
 
                   <div className="flex items-center gap-1.5">
+                    {agent.scope !== 'user' && (
+                      <button
+                        onClick={() => handleTogglePublish(agent)}
+                        className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider border cursor-pointer transition-colors ${
+                          agent.is_published
+                            ? 'text-amber-300 border-amber-500/20 hover:bg-amber-500/10'
+                            : 'text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/10'
+                        }`}
+                        title={agent.is_published ? 'Hide from User Workspace' : 'Publish to User Workspace'}
+                      >
+                        {agent.is_published ? 'Unpublish' : 'Publish'}
+                      </button>
+                    )}
                     <button
                       onClick={() => handleOpenEdit(agent)}
                       className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
@@ -414,6 +455,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     </div>
                  </div>
               </div>
+
+              <label className="flex items-center gap-3 p-4 rounded-xl border border-white/5 bg-zinc-900/40 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isPublished}
+                  onChange={(e) => setIsPublished(e.target.checked)}
+                  className="accent-cyan-500"
+                />
+                <div>
+                  <div className="text-sm font-bold text-white">Publish to User Workspace</div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">Unpublished platform agents stay hidden from normal users.</div>
+                </div>
+              </label>
 
               <div className="space-y-4 pt-4 border-t border-white/5">
                 <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2"><Wrench className="w-3.5 h-3.5" /> Tool Bindings</label>

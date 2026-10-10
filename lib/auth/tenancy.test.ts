@@ -351,6 +351,15 @@ describe('production tenancy and API security', () => {
       { params: Promise.resolve({ id: conversation.id }) }
     );
     assert.equal(otherGet.status, 200);
+    const otherBody = await otherGet.json();
+    assert.equal(otherBody.canMutate, false);
+
+    const ownerGet = await getConversation(
+      requestWith(`http://localhost/api/v1/conversations/${conversation.id}`, {}, { omniagent_session: owner.token }),
+      { params: Promise.resolve({ id: conversation.id }) }
+    );
+    const ownerBody = await ownerGet.json();
+    assert.equal(ownerBody.canMutate, true);
 
     const strangerGet = await getConversation(
       requestWith(`http://localhost/api/v1/conversations/${conversation.id}`, {}, { omniagent_session: stranger.token }),
@@ -514,6 +523,7 @@ describe('production tenancy and API security', () => {
       { params: Promise.resolve({ id: conversation.id }) }
     );
     assert.equal(otherGet.status, 200);
+    assert.equal((await otherGet.json()).canMutate, false);
 
     const writeReq = new NextRequest('http://localhost/api/v1/chat', {
       method: 'POST',
@@ -546,5 +556,65 @@ describe('production tenancy and API security', () => {
     assert.equal(uniqueUserCount(users), new Set(ids).size);
     const overview = await DatabaseStore.getPlatformOverview();
     assert.equal(overview.totalUsers, uniqueUserCount(users));
+  });
+
+  it('creates admin platform agents unpublished unless is_published is set', async () => {
+    const admin = await DatabaseStore.registerUser(`admin-unpub-${Date.now()}@example.com`, 'password123', 'Admin');
+    await DatabaseStore.updateUser(admin.user.id, { role: 'admin' }, { enforceLastAdmin: false });
+    const member = await DatabaseStore.registerUser(`member-unpub-${Date.now()}@example.com`, 'password123', 'Member');
+
+    const createdWithBody = new NextRequest('http://localhost/api/v1/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Draft platform agent',
+        description: 'should stay unpublished',
+        model: 'gemini-3.8-flash',
+        system_instructions: 'You are a draft unpublished platform assistant.',
+      }),
+    });
+    createdWithBody.cookies.set('omniagent_session', admin.token);
+    const createRes = await postAgent(createdWithBody);
+    assert.equal(createRes.status, 201);
+    const created = await createRes.json();
+    assert.equal(created.agent.is_published, false);
+    assert.equal(created.agent.scope, 'platform');
+
+    const hidden = await getAgentById(
+      requestWith(`http://localhost/api/v1/agents/${created.agent.id}`, {}, { omniagent_session: member.token }),
+      { params: Promise.resolve({ id: created.agent.id }) }
+    );
+    assert.equal(hidden.status, 404);
+
+    const publish = new NextRequest(`http://localhost/api/v1/agents/${created.agent.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ is_published: true }),
+    });
+    publish.cookies.set('omniagent_session', admin.token);
+    const published = await patchAgent(publish, { params: Promise.resolve({ id: created.agent.id }) });
+    assert.equal(published.status, 200);
+    assert.equal((await published.json()).agent.is_published, true);
+
+    const visible = await getAgentById(
+      requestWith(`http://localhost/api/v1/agents/${created.agent.id}`, {}, { omniagent_session: member.token }),
+      { params: Promise.resolve({ id: created.agent.id }) }
+    );
+    assert.equal(visible.status, 200);
+  });
+
+  it('never returns raw API keys or hashes on list', async () => {
+    const admin = await DatabaseStore.registerUser(`admin-keys-${Date.now()}@example.com`, 'password123', 'Admin');
+    await DatabaseStore.updateUser(admin.user.id, { role: 'admin' }, { enforceLastAdmin: false });
+    const res = await getApiKeys(requestWith('http://localhost/api/v1/api-keys', {}, { omniagent_session: admin.token }));
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.apiKeys));
+    for (const key of body.apiKeys) {
+      assert.equal(key.key_hash, undefined);
+      assert.equal(key.keyHash, undefined);
+      assert.equal(key.rawKey, undefined);
+      assert.ok(key.keyPrefix || key.id);
+    }
   });
 });

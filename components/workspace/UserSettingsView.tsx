@@ -25,7 +25,7 @@ export const UserSettingsView: React.FC<UserSettingsViewProps> = ({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [memories, setMemories] = useState<UserMemory[]>([]);
-  const [files, setFiles] = useState<UserFile[]>([]);
+  const [files, setFiles] = useState<Array<UserFile & { knowledgeStatus?: string; knowledgeError?: string | null }>>([]);
   const [memoryDraft, setMemoryDraft] = useState('');
   const [analysisNote, setAnalysisNote] = useState('Private files are stored in owner-scoped storage.');
   const [sessions, setSessions] = useState<AuthSessionRecord[]>([]);
@@ -52,7 +52,19 @@ export const UserSettingsView: React.FC<UserSettingsViewProps> = ({
     }
     if (fileRes.ok) {
       const data = await fileRes.json();
-      setFiles(data.files || []);
+      const documents = (data.documents || []) as Array<{ file_id: string; status?: string; error_message?: string | null; chunk_count?: number }>;
+      const byFile = new Map(documents.map((d) => [d.file_id, d]));
+      setFiles(
+        (data.files || []).map((file: UserFile) => {
+          const doc = byFile.get(file.id);
+          return {
+            ...file,
+            knowledgeStatus: doc?.status || (file.indexed ? 'ready' : 'stored'),
+            knowledgeError: doc?.error_message || null,
+            chunk_count: doc?.chunk_count ?? file.chunk_count,
+          };
+        })
+      );
       if (data.message) setAnalysisNote(data.message);
     }
     if (sessionRes.ok) {
@@ -351,7 +363,17 @@ export const UserSettingsView: React.FC<UserSettingsViewProps> = ({
               <button type="button" onClick={() => handleDownloadFile(f)} className="flex-1 truncate text-left hover:text-cyan-300 cursor-pointer">
                 {f.original_name}
               </button>
-              <span className="text-[10px] text-zinc-500">{f.indexed ? `${f.chunk_count || 0} chunks` : 'stored'}</span>
+              <span className="text-[10px] text-zinc-500">
+                {f.knowledgeStatus === 'ready'
+                  ? `${f.chunk_count || 0} chunks indexed`
+                  : f.knowledgeStatus === 'failed'
+                    ? `index failed${f.knowledgeError ? `: ${f.knowledgeError}` : ''}`
+                    : f.knowledgeStatus === 'unsupported'
+                      ? 'not indexable'
+                      : f.knowledgeStatus === 'pending'
+                        ? 'indexing'
+                        : 'stored'}
+              </span>
               <span className="text-[10px] text-zinc-500">{Math.max(1, Math.round(f.size_bytes / 1024))} KB</span>
               <button type="button" onClick={() => handleDeleteFile(f.id)} className="text-zinc-500 hover:text-rose-400 cursor-pointer">
                 <Trash2 className="w-3.5 h-3.5" />

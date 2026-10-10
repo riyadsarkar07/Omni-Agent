@@ -35,7 +35,7 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
       setIsLoadingList(true);
       try {
         const res = await apiFetch(`/api/v1/conversations`, {
-          headers: { 'x-internal-admin': 'true' },
+          headers: { 'Content-Type': 'application/json' },
         });
         const data = await res.json();
         if (!ignore && res.ok) {
@@ -64,7 +64,7 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
       setIsLoadingMessages(true);
       try {
         const res = await apiFetch(`/api/v1/conversations/${selectedConvId}`, {
-          headers: { 'x-internal-admin': 'true' },
+          headers: { 'Content-Type': 'application/json' },
         });
         const data = await res.json();
         if (!ignore && res.ok) {
@@ -88,7 +88,7 @@ export const ConversationsView: React.FC<ConversationsViewProps> = ({ activeProj
     try {
       await apiFetch(`/api/v1/conversations/${id}`, {
         method: 'DELETE',
-        headers: { 'x-internal-admin': 'true' },
+        headers: { 'Content-Type': 'application/json' },
       });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (selectedConvId === id) {

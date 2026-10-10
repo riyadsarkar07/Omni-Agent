@@ -118,7 +118,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           value={agents.length}
           icon={Bot}
           color="text-indigo-400"
-          subValue={<><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse text-emerald-400" /> All published & ready</>}
+          subValue={`${agents.filter((a) => a.is_published).length} published`}
         />
         <MetricCard
           title="API Invocations"
@@ -317,7 +317,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <div>
                   <div className="text-xs font-bold text-zinc-200">Gemini 3.8 Flash</div>
                 </div>
-                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20 uppercase">Ready</span>
+                <span className="text-[9px] font-bold text-amber-300 bg-amber-500/10 px-2 py-1 rounded-md border border-amber-500/20 uppercase">Configured</span>
               </div>
               <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/50 border border-white/5">
                 <div>

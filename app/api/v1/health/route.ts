@@ -81,7 +81,10 @@ export async function GET(req: NextRequest) {
           ? 'unconfigured'
           : 'in-memory',
     },
-    providers: providerConnectivity,
+    providers: {
+      ...providerConnectivity,
+      note: 'connected counts only providers whose last test reported Connected; configuration is not a live probe',
+    },
     documentation: '/#documentation',
     missing_production_secrets: productionMissing,
   };

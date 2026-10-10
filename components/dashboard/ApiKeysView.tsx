@@ -18,6 +18,31 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
+type ApiKeyRow = ApiKey & {
+  projectId?: string;
+  keyPrefix?: string;
+  rateLimitRpm?: number;
+  lastUsedAt?: string | null;
+  expiresAt?: string | null;
+  createdAt?: string;
+};
+
+function normalizeApiKey(raw: ApiKeyRow): ApiKey {
+  return {
+    id: raw.id,
+    project_id: raw.project_id || raw.projectId || '',
+    name: raw.name,
+    key_prefix: raw.key_prefix || raw.keyPrefix || '',
+    key_hash: '',
+    environment: raw.environment,
+    rate_limit_rpm: raw.rate_limit_rpm ?? raw.rateLimitRpm ?? 0,
+    last_used_at: raw.last_used_at ?? raw.lastUsedAt ?? null,
+    expires_at: raw.expires_at ?? raw.expiresAt ?? null,
+    status: raw.status,
+    created_at: raw.created_at || raw.createdAt || '',
+  };
+}
+
 interface ApiKeysViewProps {
   apiKeys: ApiKey[];
   projects: Project[];
@@ -56,7 +81,7 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
     try {
       const res = await apiFetch('/api/v1/api-keys', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newKeyName,
           environment,
@@ -89,7 +114,6 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
     try {
       await apiFetch(`/api/v1/api-keys/${id}`, {
         method: 'DELETE',
-        headers: { 'x-internal-admin': 'true' },
       });
       onRefresh();
     } catch (err: unknown) {
@@ -153,7 +177,15 @@ export const ApiKeysView: React.FC<ApiKeysViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {apiKeys.map((key) => {
+              {apiKeys.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="py-10 px-6 text-center text-zinc-500 text-sm">
+                    No API keys yet. Generate a key for server-side integrations. The raw secret is shown only once.
+                  </td>
+                </tr>
+              )}
+              {apiKeys.map((raw) => {
+                const key = normalizeApiKey(raw as ApiKeyRow);
                 const isActive = key.status === 'active';
                 const isProd = key.environment === 'production';
                 return (

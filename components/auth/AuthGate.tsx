@@ -16,6 +16,16 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children, requireAdmin = fal
   const [denied, setDenied] = useState(false);
 
   useEffect(() => {
+    const appearance = user?.preferences?.appearance || 'system';
+    const root = document.documentElement;
+    if (appearance === 'light' || appearance === 'dark') {
+      root.dataset.theme = appearance;
+    } else {
+      delete root.dataset.theme;
+    }
+  }, [user?.preferences?.appearance]);
+
+  useEffect(() => {
     let ignore = false;
     apiFetch('/api/auth/me')
       .then(async (res) => {

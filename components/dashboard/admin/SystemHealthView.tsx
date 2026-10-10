@@ -32,6 +32,20 @@ export const SystemHealthView: React.FC = () => {
     };
   }, []);
 
+  const statusTone = (status: string) => {
+    const value = status.toLowerCase();
+    if (['healthy', 'connected', 'configured'].includes(value)) {
+      return 'text-emerald-400 bg-emerald-500/10';
+    }
+    if (['degraded', 'unconfigured', 'not-probed', 'in-memory', 'untested'].includes(value) || /^\d+$/.test(value)) {
+      return 'text-amber-300 bg-amber-500/10';
+    }
+    if (['unreachable', 'unhealthy'].includes(value)) {
+      return 'text-rose-300 bg-rose-500/10';
+    }
+    return 'text-zinc-300 bg-white/5';
+  };
+
   const services = health
     ? [
         { name: 'API', status: health.status || 'unknown' },
@@ -40,7 +54,7 @@ export const SystemHealthView: React.FC = () => {
         { name: 'Gemini config', status: health.gemini_engine?.configured ? 'configured' : 'unconfigured' },
         { name: 'Gemini connectivity', status: health.gemini_engine?.connectivity || 'not-probed' },
         { name: 'Enabled providers', status: String(health.providers?.enabled ?? 0) },
-        { name: 'Connected providers', status: String(health.providers?.connected ?? 0) },
+        { name: 'Last-tested Connected', status: String(health.providers?.connected ?? 0) },
       ]
     : [];
 
@@ -48,7 +62,9 @@ export const SystemHealthView: React.FC = () => {
     <div className="space-y-6 animate-in fade-in duration-500 pb-20 max-w-[1600px] mx-auto w-full">
       <div>
         <h2 className="text-2xl font-extrabold text-white tracking-tight">System Health</h2>
-        <p className="text-zinc-400 text-sm mt-1">Live component status from `/api/v1/health`.</p>
+        <p className="text-zinc-400 text-sm mt-1">
+          Configuration and last-known status from `/api/v1/health`. Gemini connectivity is not probed on this page.
+        </p>
       </div>
 
       {error && <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-300 text-xs p-3">{error}</div>}
@@ -63,7 +79,7 @@ export const SystemHealthView: React.FC = () => {
             {services.map((service) => (
               <div key={service.name} className="flex justify-between items-center text-sm">
                 <span className="text-zinc-300 font-medium">{service.name}</span>
-                <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-md text-[10px] uppercase">{service.status}</span>
+                <span className={`font-bold px-2.5 py-1 rounded-md text-[10px] uppercase ${statusTone(service.status)}`}>{service.status}</span>
               </div>
             ))}
             {!health && !error && <div className="text-xs text-zinc-500">Loading health...</div>}

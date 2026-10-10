@@ -132,7 +132,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ currentUser }) => {
     }
     if (healthRes.ok) {
       const health = await healthRes.json();
-      setIsSupabaseConnected(health.database?.adapter === 'supabase-postgresql');
+      setIsSupabaseConnected(health.database?.status === 'connected');
     }
   }, []);
 

@@ -44,9 +44,18 @@ interface ChatWorkspaceProps {
   activeProject: Project | null;
   initialConversationId?: string;
   initialAgentId?: string;
+  hideConversationSidebar?: boolean;
+  currentUserId?: string;
 }
 
-export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProject, initialConversationId, initialAgentId }) => {
+export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
+  agents,
+  activeProject,
+  initialConversationId,
+  initialAgentId,
+  hideConversationSidebar = false,
+  currentUserId,
+}) => {
   const initialAgent = agents.find((a) => a.id === initialAgentId) || agents[0];
   const [selectedAgentId, setSelectedAgentId] = useState<string>(initialAgent?.id || '');
   const [model, setModel] = useState<string>(initialAgent?.model || '');
@@ -79,6 +88,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [voiceModeOpen, setVoiceModeOpen] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [canMutateConversation, setCanMutateConversation] = useState(true);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -136,6 +146,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           tokens: m.tokens_used,
         }));
         setMessages(loaded);
+        setCanMutateConversation(data.canMutate !== false);
         const agentId = data.conversation?.agent_id as string | undefined;
         if (agentId) {
           const agent = agents.find((a) => a.id === agentId);
@@ -428,6 +439,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
         (item) => item.status === 'ready' && item.fileId
       );
       if ((!trimmed && ready.length === 0) || isChatLoading) return;
+      if (!canMutateConversation) {
+        setChatError(classifyChatError('This conversation is shared read-only. You can view it but cannot send messages.'));
+        return;
+      }
       if (attachmentsRef.current.some((item) => item.status === 'uploading' || item.status === 'pending')) return;
 
       speech.stop();
@@ -642,6 +657,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
       useStreaming,
       loadConversations,
       speech,
+      canMutateConversation,
     ]
   );
 
@@ -655,6 +671,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
     setAttachments([]);
     setVoiceModeOpen(false);
     setDrawerOpen(false);
+    setCanMutateConversation(true);
   };
 
   const handleOpenConversation = async (id: string) => {
@@ -678,6 +695,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
         tokens: m.tokens_used,
       }));
       setMessages(loaded);
+      setCanMutateConversation(data.canMutate !== false);
     } catch (err: unknown) {
       setChatError(classifyChatError((err as Error).message));
     }
@@ -744,7 +762,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
     onToolsEnabled: setToolsEnabled,
   };
 
-  const sidebar = (
+  const readOnly = Boolean(conversationId) && canMutateConversation === false;
+
+  const sidebar = hideConversationSidebar ? null : (
     <ConversationSidebar
       conversations={conversations}
       activeId={conversationId}
@@ -754,15 +774,28 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
       onOpen={handleOpenConversation}
       onDelete={handleDeleteConversation}
       onRename={handleRenameConversation}
+      currentUserId={currentUserId}
     />
   );
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
-      <div className="hidden h-full min-h-0 lg:flex">{sidebar}</div>
+      {sidebar ? <div className="hidden h-full min-h-0 lg:flex">{sidebar}</div> : null}
 
       <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-white/5 px-3 lg:hidden">
+        {hideConversationSidebar && (
+          <header className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-white/5 px-3 lg:hidden">
+            <button
+              type="button"
+              aria-label="Open agent parameters"
+              onClick={() => setSheetOpen(true)}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-zinc-300"
+            >
+              <Settings2 className="h-4 w-4" />
+            </button>
+          </header>
+        )}
+        <header className={`flex h-14 shrink-0 items-center justify-between gap-2 border-b border-white/5 px-3 ${hideConversationSidebar ? 'hidden' : 'lg:hidden'}`}>
           <button
             type="button"
             aria-label="Open conversations"
@@ -785,7 +818,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           </button>
         </header>
 
-        <div className="hidden items-center justify-between border-b border-white/5 px-4 py-2 lg:flex">
+        <div className={`items-center justify-between border-b border-white/5 px-4 py-2 ${hideConversationSidebar ? 'hidden' : 'hidden lg:flex'}`}>
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-zinc-100">OmniAgent Personal AI Command Center</div>
             <div className="truncate text-[11px] text-zinc-500">
@@ -817,7 +850,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-5">
           {messages.length === 0 && !isChatLoading && (
-            <EmptyPlayground onPrompt={(p) => sendPrompt(p)} />
+            <EmptyPlayground onPrompt={(p) => { if (!readOnly) sendPrompt(p); }} />
           )}
 
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -830,9 +863,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
                 isLastModel={lastModel?.id === msg.id}
                 isGenerating={isChatLoading}
                 onStop={stopGeneration}
-                onRegenerate={lastUserText ? () => sendPrompt(lastUserText, { regenerate: true }) : undefined}
-                onRetry={lastUserText ? () => sendPrompt(lastUserText) : undefined}
-                onEditResend={(text) => sendPrompt(text, { replaceUserId: msg.id })}
+                onRegenerate={!readOnly && lastUserText ? () => sendPrompt(lastUserText, { regenerate: true }) : undefined}
+                onRetry={!readOnly && lastUserText ? () => sendPrompt(lastUserText) : undefined}
+                onEditResend={!readOnly ? (text) => sendPrompt(text, { replaceUserId: msg.id }) : undefined}
               />
             ))}
 
@@ -874,12 +907,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           </div>
         </div>
 
+        {readOnly && (
+          <div className="mx-3 mb-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+            Shared read-only. You can view this conversation but cannot send, rename, delete, or re-share it.
+          </div>
+        )}
+
         <ChatComposer
           value={inputMessage}
           onChange={setInputMessage}
           onSend={() => sendPrompt(inputMessage)}
           onStop={stopGeneration}
           isGenerating={isChatLoading}
+          disabled={readOnly}
           attachments={attachments}
           onAddFiles={addFiles}
           onRemoveAttachment={removeAttachment}
@@ -889,7 +929,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           voiceError={speech.error}
           interimTranscript={interimTranscript}
           onToggleVoice={speech.toggle}
-          onOpenVoiceMode={() => setVoiceModeOpen(true)}
+          onOpenVoiceMode={() => { if (!readOnly) setVoiceModeOpen(true); }}
           visionSupported={visionSupported}
         />
         {voiceModeOpen ? (
@@ -931,6 +971,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
         <AgentParameters {...parameterProps} />
       </aside>
 
+      {!hideConversationSidebar && (
       <MobileNavigationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <ConversationSidebar
           conversations={conversations}
@@ -942,8 +983,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ agents, activeProj
           onOpen={handleOpenConversation}
           onDelete={handleDeleteConversation}
           onRename={handleRenameConversation}
+          currentUserId={currentUserId}
         />
       </MobileNavigationDrawer>
+      )}
 
       <MobileAgentSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
         <AgentParameters {...parameterProps} />

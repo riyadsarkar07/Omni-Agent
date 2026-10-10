@@ -14,6 +14,7 @@ interface ConversationSidebarProps {
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   hideCollapse?: boolean;
+  currentUserId?: string;
 }
 
 export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
@@ -26,6 +27,7 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   onDelete,
   onRename,
   hideCollapse,
+  currentUserId,
 }) => {
   const [query, setQuery] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -106,6 +108,7 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
               active={c.id === activeId}
               renaming={renamingId === c.id}
               renameValue={renameValue}
+              canMutate={canMutateRow(c, currentUserId)}
               onRenameValue={setRenameValue}
               onOpen={() => onOpen(c.id)}
               onStartRename={() => {
@@ -131,6 +134,7 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
                 active={c.id === activeId}
                 renaming={renamingId === c.id}
                 renameValue={renameValue}
+                canMutate={canMutateRow(c, currentUserId)}
                 onRenameValue={setRenameValue}
                 onOpen={() => onOpen(c.id)}
                 onStartRename={() => {
@@ -153,6 +157,13 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   );
 };
 
+function canMutateRow(conversation: Conversation, currentUserId?: string): boolean {
+  if (!currentUserId) return true;
+  const owner = conversation.metadata?.owner_id;
+  if (typeof owner !== 'string' || !owner) return true;
+  return owner === currentUserId;
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-3">
@@ -173,11 +184,13 @@ function ConversationRow({
   onCommitRename,
   onCancelRename,
   onDelete,
+  canMutate,
 }: {
   conversation: Conversation;
   active: boolean;
   renaming: boolean;
   renameValue: string;
+  canMutate: boolean;
   onRenameValue: (v: string) => void;
   onOpen: () => void;
   onStartRename: () => void;
@@ -213,22 +226,28 @@ function ConversationRow({
           {conversation.title || 'Untitled'}
         </button>
       )}
-      <button
-        type="button"
-        aria-label="Rename conversation"
-        onClick={onStartRename}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 opacity-100 hover:text-zinc-200 lg:opacity-0 lg:group-hover:opacity-100"
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        aria-label="Delete conversation"
-        onClick={onDelete}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 opacity-100 hover:text-rose-300 lg:opacity-0 lg:group-hover:opacity-100"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      {canMutate ? (
+        <>
+          <button
+            type="button"
+            aria-label="Rename conversation"
+            onClick={onStartRename}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 opacity-100 hover:text-zinc-200 lg:opacity-0 lg:group-hover:opacity-100"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Delete conversation"
+            onClick={onDelete}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 opacity-100 hover:text-rose-300 lg:opacity-0 lg:group-hover:opacity-100"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </>
+      ) : (
+        <span className="pr-2 text-[9px] uppercase tracking-wider text-zinc-500">Shared</span>
+      )}
     </div>
   );
 }

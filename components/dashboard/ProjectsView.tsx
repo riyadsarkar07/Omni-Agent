@@ -84,7 +84,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       if (editingProject) {
         const res = await apiFetch(`/api/v1/projects/${editingProject.id}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
@@ -94,7 +94,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       } else {
         const res = await apiFetch('/api/v1/projects', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-internal-admin': 'true' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
@@ -123,7 +123,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     try {
       await apiFetch(`/api/v1/projects/${id}`, {
         method: 'DELETE',
-        headers: { 'x-internal-admin': 'true' },
+        headers: { 'Content-Type': 'application/json' },
       });
       onRefresh();
     } catch (err: unknown) {

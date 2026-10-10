@@ -7,8 +7,29 @@
 
 :root {
   color-scheme: dark;
-  --bg-main: #030712; /* deeper dark, almost black */
-  --bg-panel: #09090b; /* zinc-950 */
+  --bg-main: #030712;
+  --bg-panel: #09090b;
+}
+
+html[data-theme='light'] {
+  color-scheme: light;
+  --bg-main: #f4f4f5;
+  --bg-panel: #ffffff;
+}
+
+html[data-theme='light'] body {
+  color: #18181b;
+}
+
+html[data-theme='light'] .glass-panel {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(24, 24, 27, 0.08);
+}
+
+html[data-theme='light'] .glass-card {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.92) 0%, rgba(244, 244, 245, 0.94) 100%);
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  box-shadow: 0 4px 24px -1px rgba(24, 24, 27, 0.08);
 }
 
 body {

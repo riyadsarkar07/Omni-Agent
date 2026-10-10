@@ -29,9 +29,18 @@ interface PlaygroundViewProps {
   onRefreshAgents: () => void;
   initialConversationId?: string;
   initialAgentId?: string;
+  compactChat?: boolean;
+  currentUserId?: string;
 }
 
-export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activeProject, initialConversationId, initialAgentId }) => {
+export const PlaygroundView: React.FC<PlaygroundViewProps> = ({
+  agents,
+  activeProject,
+  initialConversationId,
+  initialAgentId,
+  compactChat = false,
+  currentUserId,
+}) => {
   const [activeSubTab, setActiveSubTab] = useState<'chatbot' | 'music' | 'video' | 'transcribe'>('chatbot');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -281,6 +290,21 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
     </button>
   );
 
+  if (compactChat) {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+        <ChatWorkspace
+          agents={agents}
+          activeProject={activeProject}
+          initialConversationId={initialConversationId}
+          initialAgentId={initialAgentId}
+          hideConversationSidebar
+          currentUserId={currentUserId}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-none border-white/5 shadow-xl glass-panel sm:rounded-2xl sm:border">
@@ -293,7 +317,13 @@ export const PlaygroundView: React.FC<PlaygroundViewProps> = ({ agents, activePr
 
         {activeSubTab === 'chatbot' && (
           <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <ChatWorkspace agents={agents} activeProject={activeProject} initialConversationId={initialConversationId} initialAgentId={initialAgentId} />
+            <ChatWorkspace
+              agents={agents}
+              activeProject={activeProject}
+              initialConversationId={initialConversationId}
+              initialAgentId={initialAgentId}
+              currentUserId={currentUserId}
+            />
           </div>
         )}
 

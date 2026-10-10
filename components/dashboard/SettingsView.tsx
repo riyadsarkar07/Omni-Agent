@@ -17,6 +17,9 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ isSupabaseConnected }) => {
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [geminiConnectivity, setGeminiConnectivity] = useState('not-probed');
+  const [databaseStatus, setDatabaseStatus] = useState(isSupabaseConnected ? 'connected' : 'in-memory');
   const [copiedMigration, setCopiedMigration] = useState(false);
   const [defaultModel, setDefaultModel] = useState('gemini-3.8-flash');
   const [adminContactEmail, setAdminContactEmail] = useState('');
@@ -26,18 +29,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isSupabaseConnected 
 
   useEffect(() => {
     let ignore = false;
-    apiFetch('/api/v1/admin/settings')
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok || ignore) return;
-        if (data.settings?.default_model) setDefaultModel(data.settings.default_model);
-        if (data.settings?.admin_contact_email) setAdminContactEmail(data.settings.admin_contact_email);
+    Promise.all([apiFetch('/api/v1/admin/settings'), apiFetch('/api/v1/health')])
+      .then(async ([settingsRes, healthRes]) => {
+        const settingsData = await settingsRes.json().catch(() => ({}));
+        const healthData = await healthRes.json().catch(() => ({}));
+        if (ignore) return;
+        if (settingsRes.ok) {
+          if (settingsData.settings?.default_model) setDefaultModel(settingsData.settings.default_model);
+          if (settingsData.settings?.admin_contact_email) setAdminContactEmail(settingsData.settings.admin_contact_email);
+        }
+        if (healthRes.ok) {
+          setGeminiConfigured(Boolean(healthData.gemini_engine?.configured));
+          setGeminiConnectivity(healthData.gemini_engine?.connectivity || 'not-probed');
+          setDatabaseStatus(healthData.database?.status || (isSupabaseConnected ? 'connected' : 'in-memory'));
+        }
       })
       .catch(() => {});
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [isSupabaseConnected]);
 
   const sampleMigrationSql = `-- Universal AI Agent Platform Supabase Migration
 -- Run in Supabase SQL Editor:
@@ -112,19 +123,27 @@ CREATE TABLE IF NOT EXISTS public.projects (
               </div>
             </div>
 
-            <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+            <span className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+              geminiConfigured
+                ? 'text-amber-300 bg-amber-500/10 border-amber-500/20'
+                : 'text-zinc-400 bg-zinc-800 border-zinc-700'
+            }`}>
               <CheckCircle2 className="w-3 h-3" />
-              Ready
+              {geminiConfigured ? 'Configured' : 'Unconfigured'}
             </span>
           </div>
 
           <p className="text-xs text-slate-300 leading-relaxed">
-            Connected to Gemini models with multi-turn context retention, Server-Sent Events (SSE) streaming, and High Thinking reasoning.
+            {geminiConfigured
+              ? `Gemini API key is present on the server. Live connectivity: ${geminiConnectivity}. Use Providers to run a real connection test.`
+              : 'GEMINI_API_KEY is not set. Chat will fail until a provider key is configured.'}
           </p>
 
           <div className="text-[11px] text-slate-400 font-mono bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
             <span>GEMINI_API_KEY</span>
-            <span className="text-emerald-400 font-semibold">Configured (Server-Side)</span>
+            <span className={geminiConfigured ? 'text-amber-300 font-semibold' : 'text-zinc-500 font-semibold'}>
+              {geminiConfigured ? 'Present (not probed)' : 'Missing'}
+            </span>
           </div>
         </div>
 
@@ -151,13 +170,15 @@ CREATE TABLE IF NOT EXISTS public.projects (
 
             <span
               className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                isSupabaseConnected
+                databaseStatus === 'connected'
                   ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                  : 'text-indigo-300 bg-indigo-500/10 border-indigo-500/20'
+                  : databaseStatus === 'unreachable' || databaseStatus === 'unconfigured'
+                    ? 'text-rose-300 bg-rose-500/10 border-rose-500/20'
+                    : 'text-indigo-300 bg-indigo-500/10 border-indigo-500/20'
               }`}
             >
               <CheckCircle2 className="w-3 h-3" />
-              Connected
+              {databaseStatus}
             </span>
           </div>
 

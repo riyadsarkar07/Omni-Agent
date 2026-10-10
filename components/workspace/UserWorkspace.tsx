@@ -339,6 +339,7 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
+        {tab !== 'chat' && (
         <header className="h-14 border-b border-white/5 px-3 md:px-4 flex items-center gap-3">
           <button
             type="button"
@@ -348,10 +349,20 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
             <Menu className="w-4 h-4" />
           </button>
           <div className="text-sm font-semibold text-white">
-            {tab === 'chat' ? 'Chat' : tab === 'agents' ? 'My Agents' : tab === 'projects' ? 'Projects' : tab === 'usage' ? 'Usage' : 'Settings'}
+            {tab === 'agents' ? 'My Agents' : tab === 'projects' ? 'Projects' : tab === 'usage' ? 'Usage' : 'Settings'}
           </div>
         </header>
-        <main className="flex-1 min-h-0 overflow-hidden">
+        )}
+        {tab === 'chat' && (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="lg:hidden absolute top-3 left-3 z-20 p-2 rounded-lg bg-zinc-950/80 border border-white/10 text-zinc-400 cursor-pointer"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        )}
+        <main className="flex-1 min-h-0 overflow-hidden relative">
           {tab === 'chat' && (
             <div className="h-full p-2 md:p-4 overflow-hidden">
               <PlaygroundView
@@ -361,6 +372,8 @@ export const UserWorkspace: React.FC<UserWorkspaceProps> = ({
                 onRefreshAgents={loadWorkspace}
                 initialConversationId={openConversationId}
                 initialAgentId={openAgentId}
+                compactChat
+                currentUserId={currentUser.id}
               />
             </div>
           )}

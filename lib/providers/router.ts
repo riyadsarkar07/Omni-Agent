@@ -77,7 +77,7 @@ export class ModelRouter {
         'VIDEO_GENERATION',
         'MUSIC_GENERATION',
       ],
-      connectionStatus: process.env.GEMINI_API_KEY ? 'Connected' : 'Untested',
+      connectionStatus: 'Untested',
       metadata: { streamingEnabled: true },
     };
   }

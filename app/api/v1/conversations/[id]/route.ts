@@ -24,10 +24,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return applyCorsHeaders(NextResponse.json({ error: 'Conversation not found' }, { status: 404 }));
   }
 
+  const canMutate = await userCanMutateConversation(auth, data.conversation);
   return applyCorsHeaders(
     NextResponse.json({
       conversation: data.conversation,
       messages: data.messages,
+      canMutate,
     })
   );
 }
