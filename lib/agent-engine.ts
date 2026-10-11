@@ -23,6 +23,8 @@ export interface ChatEngineOptions {
   userId?: string;
   overrideThinkingLevel?: 'HIGH' | 'LOW' | 'MINIMAL' | 'OFF';
   overrideModel?: string;
+  overrideProviderId?: string;
+  auto?: boolean;
   useKnowledge?: boolean;
   knowledgeQuery?: string;
 }
@@ -40,6 +42,10 @@ export interface ChatEngineResult {
   totalTokens: number;
   latencyMs: number;
   model: string;
+  providerId?: string;
+  providerName?: string;
+  routingReason?: string;
+  fallbackAttempts?: number;
 }
 
 export class AgentEngine {
@@ -121,12 +127,18 @@ export class AgentEngine {
       }
     }
 
-    const modelToUse = options.overrideModel || agent.model || 'gemini-3.8-flash';
-    const providerId = agent.provider_id || 'gemini';
-    await AgentEngine.assertVisionSupport(options, modelToUse, providerId);
+    const auto = options.auto === true;
+    const requestedProviderId = auto ? undefined : options.overrideProviderId || agent.provider_id;
+    const requestedModel = auto ? undefined : options.overrideModel || agent.model;
+    const modelToUse = requestedModel || agent.model || 'gemini-3.8-flash';
+    const providerId = requestedProviderId || agent.provider_id || 'gemini';
+    if (!auto) {
+      await AgentEngine.assertVisionSupport(options, modelToUse, providerId);
+    }
     await DatabaseStore.saveMessage(conversation.id, 'user', options.storedMessage || message);
 
     const useExternalProvider =
+      auto ||
       (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') ||
       !modelToUse.toLowerCase().includes('gemini');
 
@@ -152,14 +164,19 @@ export class AgentEngine {
       };
 
       try {
-        const response = await ModelRouter.generate(providerId, params, agent.fallback_provider_id);
+        const response = await ModelRouter.generate(requestedProviderId, params, {
+          auto,
+          fallbackProviderId: agent.fallback_provider_id,
+          fallbackModel: agent.fallback_model,
+          requirements: { tools: (agent.tools_enabled || []).length > 0, vision: images.length > 0 },
+        });
         const finalResponseText = response.text || '';
         const latencyMs = Date.now() - startTime;
         const promptTokens = response.usage?.promptTokens || Math.ceil(message.length / 4) + 60;
         const candidateTokens = response.usage?.candidateTokens || Math.ceil(finalResponseText.length / 4);
         const totalTokens = promptTokens + candidateTokens;
+        const selectedModel = response.selectedModel || response.model || modelToUse;
 
-        // Save model reply to conversation
         await DatabaseStore.saveMessage(
           conversation.id,
           'model',
@@ -169,14 +186,18 @@ export class AgentEngine {
           candidateTokens
         );
 
-        // Log usage
         await DatabaseStore.logUsage({
           project_id: projectId,
           agent_id: agent.id,
           api_key_id: apiKeyId || null,
           user_id: options.userId || null,
           endpoint: '/api/v1/chat',
-          model: modelToUse,
+          model: selectedModel,
+          requested_provider_id: response.requestedProviderId || requestedProviderId || null,
+          requested_model: response.requestedModel || requestedModel || null,
+          selected_provider_id: response.selectedProviderId || null,
+          selected_model: selectedModel,
+          fallback_attempts: response.fallbackAttempts || 0,
           prompt_tokens: promptTokens,
           candidate_tokens: candidateTokens,
           total_tokens: totalTokens,
@@ -193,24 +214,13 @@ export class AgentEngine {
           candidateTokens,
           totalTokens,
           latencyMs,
-          model: modelToUse,
+          model: selectedModel,
+          providerId: response.selectedProviderId,
+          providerName: response.provider,
+          routingReason: response.routingReason,
+          fallbackAttempts: response.fallbackAttempts || 0,
         };
       } catch (err: any) {
-        // Fallback option if Fallback Provider is configured
-        if (agent.fallback_provider_id && agent.fallback_provider_id !== providerId) {
-          console.warn(`Primary provider ${providerId} failed, attempting fallback to ${agent.fallback_provider_id}`);
-          const fallbackModel = agent.fallback_model || agent.model || 'gemini-3.8-flash';
-          return await AgentEngine.executeChat({
-            ...options,
-            overrideModel: fallbackModel,
-            agent: {
-              ...agent,
-              provider_id: agent.fallback_provider_id,
-              fallback_provider_id: undefined, // Prevent loops
-            }
-          });
-        }
-
         const latencyMs = Date.now() - startTime;
         const errorMessage = err.message || 'API Error';
 
@@ -220,7 +230,13 @@ export class AgentEngine {
           api_key_id: apiKeyId || null,
           user_id: options.userId || null,
           endpoint: '/api/v1/chat',
-          model: modelToUse,
+          model: err.requestedModel || modelToUse,
+          requested_provider_id: err.requestedProviderId || requestedProviderId || null,
+          requested_model: err.requestedModel || requestedModel || null,
+          selected_provider_id: null,
+          selected_model: null,
+          fallback_attempts: Array.isArray(err.attempts) ? Math.max(0, err.attempts.length - 1) : 0,
+          failure_category: err.failureCategory || err.classified?.category || null,
           prompt_tokens: Math.ceil(message.length / 4) + 60,
           candidate_tokens: 0,
           total_tokens: Math.ceil(message.length / 4) + 60,
@@ -361,6 +377,11 @@ export class AgentEngine {
         user_id: options.userId || null,
         endpoint: '/api/v1/chat',
         model: modelToUse,
+        requested_provider_id: requestedProviderId || providerId || null,
+        requested_model: requestedModel || modelToUse,
+        selected_provider_id: providerId,
+        selected_model: modelToUse,
+        fallback_attempts: 0,
         prompt_tokens: promptTokens,
         candidate_tokens: candidateTokens,
         total_tokens: totalTokens,
@@ -378,20 +399,12 @@ export class AgentEngine {
         totalTokens,
         latencyMs,
         model: modelToUse,
+        providerId,
+        providerName: 'Google Gemini',
+        routingReason: auto ? 'auto' : 'explicit',
+        fallbackAttempts: 0,
       };
     } catch (err: unknown) {
-      if (agent.fallback_provider_id && agent.fallback_provider_id !== providerId) {
-        const fallbackModel = agent.fallback_model || agent.model || 'gemini-3.8-flash';
-        return await AgentEngine.executeChat({
-          ...options,
-          overrideModel: fallbackModel,
-          agent: {
-            ...agent,
-            provider_id: agent.fallback_provider_id,
-            fallback_provider_id: undefined,
-          },
-        });
-      }
       const latencyMs = Date.now() - startTime;
       const errorMessage = (err as Error).message || 'Gemini API Error';
 
@@ -402,6 +415,11 @@ export class AgentEngine {
         user_id: options.userId || null,
         endpoint: '/api/v1/chat',
         model: modelToUse,
+        requested_provider_id: requestedProviderId || providerId || null,
+        requested_model: requestedModel || modelToUse,
+        selected_provider_id: providerId,
+        selected_model: modelToUse,
+        failure_category: 'provider_unavailable',
         prompt_tokens: promptTokens,
         candidate_tokens: 0,
         total_tokens: promptTokens,
@@ -445,12 +463,18 @@ export class AgentEngine {
       }
     }
 
-    const modelToUse = options.overrideModel || agent.model || 'gemini-3.8-flash';
-    const providerId = agent.provider_id || 'gemini';
-    await AgentEngine.assertVisionSupport(options, modelToUse, providerId);
+    const auto = options.auto === true;
+    const requestedProviderId = auto ? undefined : options.overrideProviderId || agent.provider_id;
+    const requestedModel = auto ? undefined : options.overrideModel || agent.model;
+    const modelToUse = requestedModel || agent.model || 'gemini-3.8-flash';
+    const providerId = requestedProviderId || agent.provider_id || 'gemini';
+    if (!auto) {
+      await AgentEngine.assertVisionSupport(options, modelToUse, providerId);
+    }
     await DatabaseStore.saveMessage(conversation.id, 'user', options.storedMessage || message);
 
     const useExternalProvider =
+      auto ||
       (providerId !== 'gemini' && providerId !== 'google-gemini' && providerId !== 'native') ||
       !modelToUse.toLowerCase().includes('gemini');
 
@@ -475,7 +499,14 @@ export class AgentEngine {
       };
 
       try {
-        const stream = await ModelRouter.generateStream(providerId, params, agent.fallback_provider_id);
+        const stream = await ModelRouter.generateStream(requestedProviderId, params, {
+          auto,
+          fallbackProviderId: agent.fallback_provider_id,
+          fallbackModel: agent.fallback_model,
+          requirements: { stream: true, tools: (agent.tools_enabled || []).length > 0, vision: images.length > 0 },
+        });
+        const route = (stream as { route?: { providerId: string; model: string; reason: string; requestedProviderId?: string | null; requestedModel?: string | null; fallbackAttempts?: number } }).route;
+        const selectedModel = route?.model || modelToUse;
         const reader = stream.getReader();
         const encoderStream = new TextEncoder();
         let accumulatedText = '';
@@ -489,7 +520,9 @@ export class AgentEngine {
                   `data: ${JSON.stringify({
                     type: 'start',
                     conversationId: conversation.id,
-                    model: modelToUse,
+                    model: selectedModel,
+                    providerId: route?.providerId,
+                    routingReason: route?.reason,
                   })}\n\n`
                 )
               );
@@ -520,7 +553,7 @@ export class AgentEngine {
                         throw new Error(payload.error);
                       }
                     } catch (e) {
-                      // Skip comment rows or malformed chunks
+                      if (e instanceof Error && e.message && !e.message.includes('JSON')) throw e;
                     }
                   }
                 }
@@ -531,17 +564,20 @@ export class AgentEngine {
               const totalTokens = promptTokens + candidateTokens;
               const latencyMs = Date.now() - startTimeStream;
 
-              // Save final message
               await DatabaseStore.saveMessage(conversation.id, 'model', accumulatedText, [], [], candidateTokens);
 
-              // Log usage
               await DatabaseStore.logUsage({
                 project_id: projectId,
                 agent_id: agent.id,
                 api_key_id: apiKeyId || null,
                 user_id: options.userId || null,
                 endpoint: '/api/v1/chat/stream',
-                model: modelToUse,
+                model: selectedModel,
+                requested_provider_id: route?.requestedProviderId || requestedProviderId || null,
+                requested_model: route?.requestedModel || requestedModel || null,
+                selected_provider_id: route?.providerId || null,
+                selected_model: selectedModel,
+                fallback_attempts: route?.fallbackAttempts || 0,
                 prompt_tokens: promptTokens,
                 candidate_tokens: candidateTokens,
                 total_tokens: totalTokens,
@@ -555,6 +591,9 @@ export class AgentEngine {
                   `data: ${JSON.stringify({
                     type: 'done',
                     conversationId: conversation.id,
+                    model: selectedModel,
+                    providerId: route?.providerId,
+                    routingReason: route?.reason,
                     usage: {
                       promptTokens,
                       candidateTokens,
@@ -580,20 +619,6 @@ export class AgentEngine {
           }
         });
       } catch (err: any) {
-        // Fallback for stream
-        if (agent.fallback_provider_id && agent.fallback_provider_id !== providerId) {
-          console.warn(`Primary streaming provider ${providerId} failed, attempting fallback to ${agent.fallback_provider_id}`);
-          const fallbackModel = agent.fallback_model || agent.model || 'gemini-3.8-flash';
-          return await AgentEngine.executeChatStream({
-            ...options,
-            overrideModel: fallbackModel,
-            agent: {
-              ...agent,
-              provider_id: agent.fallback_provider_id,
-              fallback_provider_id: undefined,
-            }
-          });
-        }
         throw err;
       }
     }
@@ -645,6 +670,8 @@ export class AgentEngine {
                 type: 'start',
                 conversationId: conversation.id,
                 model: modelToUse,
+                providerId,
+                routingReason: auto ? 'auto' : 'explicit',
               })}\n\n`
             )
           );
@@ -685,6 +712,11 @@ export class AgentEngine {
             user_id: options.userId || null,
             endpoint: '/api/v1/chat/stream',
             model: modelToUse,
+            requested_provider_id: requestedProviderId || providerId || null,
+            requested_model: requestedModel || modelToUse,
+            selected_provider_id: providerId,
+            selected_model: modelToUse,
+            fallback_attempts: 0,
             prompt_tokens: promptTokens,
             candidate_tokens: candidateTokens,
             total_tokens: totalTokens,
@@ -699,6 +731,9 @@ export class AgentEngine {
               `data: ${JSON.stringify({
                 type: 'done',
                 conversationId: conversation.id,
+                model: modelToUse,
+                providerId,
+                routingReason: auto ? 'auto' : 'explicit',
                 usage: {
                   promptTokens,
                   candidateTokens,

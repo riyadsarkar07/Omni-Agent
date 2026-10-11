@@ -81,6 +81,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [chatError, setChatError] = useState<ClassifiedChatError | null>(null);
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState('');
+  const [autoRoutingEnabled, setAutoRoutingEnabled] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -224,6 +225,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         }
         const next = Array.from(byProvider.values());
         setProviders(next);
+        if (data.routing?.autoRoutingEnabled) setAutoRoutingEnabled(true);
         if (data.defaultModel) {
           const match = next.find((p) => p.defaultModel === data.defaultModel || p.models.includes(data.defaultModel));
           if (match) setSelectedProviderId((prev) => prev || match.id);
@@ -251,11 +253,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId) || agents[0];
   const enabledProviders = providers.filter((p) => p.enabled);
-  const activeProvider =
-    enabledProviders.find((p) => p.id === selectedProviderId) ||
-    enabledProviders.find((p) => p.id === selectedAgent?.provider_id) ||
-    enabledProviders.find((p) => p.defaultModel === model || (p.models || []).includes(model)) ||
-    enabledProviders[0];
+  const useAuto = autoRoutingEnabled && selectedProviderId === 'auto';
+  const activeProvider = useAuto
+    ? undefined
+    : enabledProviders.find((p) => p.id === selectedProviderId) ||
+      enabledProviders.find((p) => p.id === selectedAgent?.provider_id) ||
+      enabledProviders.find((p) => p.defaultModel === model || (p.models || []).includes(model)) ||
+      enabledProviders[0];
   const availableModels = (() => {
     const models = (activeProvider?.models || []).filter((m) => typeof m === 'string' && m.trim().length > 0);
     if (models.length > 0) return models;
@@ -370,6 +374,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   const handleProviderChange = (id: string) => {
     setSelectedProviderId(id);
+    if (id === 'auto') {
+      setModel('');
+      return;
+    }
     const next = enabledProviders.find((p) => p.id === id);
     const nextModels = (next?.models || []).filter(Boolean);
     if (nextModels.length) setModel(nextModels[0]);
@@ -396,7 +404,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   };
 
   const persistAgentOverrides = useCallback(async () => {
-    if (!selectedAgent || selectedAgent.scope !== 'user') return;
+    if (!selectedAgent || selectedAgent.scope !== 'user' || useAuto) return;
     const instructions = (systemInstructions || selectedAgent.system_instructions || '').trim();
     try {
       await apiFetch(`/api/v1/agents/${selectedAgent.id}`, {
@@ -422,6 +430,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     selectedAgent,
     resolvedModel,
     activeProvider,
+    useAuto,
     systemInstructions,
     temperature,
     topP,
@@ -481,7 +490,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       await persistAgentOverrides();
 
       const thinkingLevelToUse = resolvedThinking === 'HIGH' ? 'HIGH' : 'OFF';
-      const activeProviderId = activeProvider?.id || undefined;
+      const activeProviderId = useAuto ? undefined : activeProvider?.id || undefined;
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -489,8 +498,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         message: trimmed,
         agentId: selectedAgentId || undefined,
         conversationId: conversationIdRef.current || undefined,
-        overrideModel: resolvedModel || undefined,
+        overrideModel: useAuto ? undefined : resolvedModel || undefined,
         overrideProviderId: activeProviderId,
+        auto: useAuto || undefined,
         thinkingLevel: thinkingLevelToUse,
         attachmentIds: ready.map((item) => item.fileId!).filter(Boolean),
       };
@@ -510,8 +520,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             role: 'model',
             text: '',
             isStreaming: true,
-            model: resolvedModel,
-            provider: activeProvider?.name,
+            model: useAuto ? 'Auto' : resolvedModel,
+            provider: useAuto ? 'Auto' : activeProvider?.name,
           },
         ]);
 
@@ -558,9 +568,18 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   const parsed = JSON.parse(dataJson);
                   if (parsed.type === 'start') {
                     if (parsed.conversationId) setConversationId(parsed.conversationId);
-                    if (parsed.model) {
+                    if (parsed.model || parsed.providerId) {
                       setMessages((prev) =>
-                        prev.map((m) => (m.id === modelMsgId ? { ...m, model: parsed.model } : m))
+                        prev.map((m) =>
+                          m.id === modelMsgId
+                            ? {
+                                ...m,
+                                model: parsed.model || m.model,
+                                provider: providers.find((p) => p.id === parsed.providerId)?.name || parsed.providerId || m.provider,
+                                routingReason: parsed.routingReason || m.routingReason,
+                              }
+                            : m
+                        )
                       );
                     }
                   } else if (parsed.type === 'chunk') {
@@ -581,7 +600,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                               latencyMs: parsed.usage?.latencyMs,
                               tokens: parsed.usage?.totalTokens,
                               model: parsed.model || m.model,
-                              provider: activeProvider?.name,
+                              provider: providers.find((p) => p.id === parsed.providerId)?.name || parsed.providerId || activeProvider?.name,
+                              routingReason: parsed.routingReason || m.routingReason,
                             }
                           : m
                       )
@@ -632,8 +652,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               toolCalls: data.toolCalls,
               latencyMs: data.usage?.latencyMs || Date.now() - startTime,
               tokens: data.usage?.totalTokens,
-              model: data.model,
-              provider: activeProvider?.name,
+                model: data.model,
+                provider: data.providerName || activeProvider?.name,
+                routingReason: data.routingReason,
             },
           ]);
           loadConversations();
@@ -655,6 +676,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       selectedAgentId,
       resolvedModel,
       useStreaming,
+      useAuto,
+      providers,
       loadConversations,
       speech,
       canMutateConversation,
@@ -735,8 +758,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     selectedRole,
     onRoleChange: handleRoleChange,
     providers: enabledProviders,
-    selectedProviderId: activeProvider?.id || '',
+    selectedProviderId: useAuto ? 'auto' : activeProvider?.id || '',
     onProviderChange: handleProviderChange,
+    autoEnabled: autoRoutingEnabled,
     models: availableModels,
     model: resolvedModel,
     onModelChange: setModel,
@@ -806,7 +830,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </button>
           <div className="min-w-0 text-center">
             <div className="truncate text-sm font-semibold text-zinc-100">OmniAgent</div>
-            <div className="truncate text-[10px] text-zinc-500">{activeProvider?.name || 'Personal AI'}</div>
+            <div className="truncate text-[10px] text-zinc-500">{useAuto ? 'Auto' : activeProvider?.name || 'Personal AI'}</div>
           </div>
           <button
             type="button"
@@ -822,7 +846,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-zinc-100">OmniAgent Personal AI Command Center</div>
             <div className="truncate text-[11px] text-zinc-500">
-              {activeProvider?.name || 'Provider'} {resolvedModel ? `· ${resolvedModel}` : ''}
+              {useAuto ? 'Auto' : activeProvider?.name || 'Provider'} {useAuto ? '' : resolvedModel ? `· ${resolvedModel}` : ''}
             </div>
           </div>
           <div className="flex items-center gap-1">

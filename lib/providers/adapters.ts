@@ -10,6 +10,7 @@ import { buildProviderHeaders, fetchWithTimeout, readSafeError, sleep } from './
 import { sanitizeProviderError } from './secrets';
 import { toAnthropicContent, toGeminiParts, toOpenAIContent } from '../chat/provider-content';
 import { classifyProviderNetworkError, statusFromHttp, validateProviderEndpoint } from './endpoint';
+import { catalogFromProvider, parseModelCatalog, unknownCatalog, type ModelCatalog } from './model-catalog';
 
 // Standard helper to parse SSE lines
 export async function* parseSSE(response: Response): AsyncGenerator<string, void, unknown> {
@@ -113,10 +114,15 @@ export class GeminiAdapter {
           .filter((name: string) => name && !name.startsWith('models/preview'))
           .map((name: string) => name.replace('models/', ''));
       }
-      return provider.models || [];
+      return storedCatalog(provider).ids;
     } catch {
-      return provider.models || [];
+      return storedCatalog(provider).ids;
     }
+  }
+
+  static async listCatalog(provider: AIProvider): Promise<ModelCatalog> {
+    const ids = await this.listModels(provider);
+    return unknownCatalog(ids);
   }
 
   static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {
@@ -251,20 +257,8 @@ function isRateLimitedStatus(status: number): boolean {
   return status === 429 || status === 402;
 }
 
-function collectModelIds(payload: unknown): string[] {
-  if (!payload || typeof payload !== 'object') return [];
-  const data = payload as { data?: unknown; models?: unknown };
-  const rows = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
-  return rows
-    .map((m) => {
-      if (typeof m === 'string') return m;
-      if (m && typeof m === 'object') {
-        const row = m as { id?: string; name?: string };
-        return row.id || row.name || '';
-      }
-      return '';
-    })
-    .filter((id): id is string => Boolean(id));
+function storedCatalog(provider: AIProvider): ModelCatalog {
+  return catalogFromProvider(provider);
 }
 
 export class OpenAIAdapter {
@@ -352,7 +346,7 @@ export class OpenAIAdapter {
     }
 
     const headers = this.getHeaders({ ...provider, apiKey });
-    const discovered: string[] = [...(provider.models || [])];
+    let catalog = storedCatalog(provider);
     let reachable = false;
     let authenticated = false;
     let openrouterHost = false;
@@ -361,6 +355,12 @@ export class OpenAIAdapter {
     } catch {
       openrouterHost = baseUrl.toLowerCase().includes('openrouter.ai');
     }
+
+    const catalogFields = () => ({
+      models: catalog.ids,
+      availableModels: catalog.availableIds,
+      availabilityKnown: catalog.availabilityKnown,
+    });
 
     try {
       if (openrouterHost) {
@@ -376,7 +376,7 @@ export class OpenAIAdapter {
             error: await readSafeError(keyRes),
             reachable: true,
             authenticated: false,
-            models: discovered,
+            ...catalogFields(),
             kind: 'auth',
           };
         }
@@ -387,10 +387,8 @@ export class OpenAIAdapter {
               headers,
             });
             if (modelsRes.ok) {
-              const ids = collectModelIds(await modelsRes.json());
-              for (const id of ids) {
-                if (!discovered.includes(id)) discovered.push(id);
-              }
+              const parsed = parseModelCatalog(await modelsRes.json());
+              if (parsed.ids.length > 0) catalog = parsed;
             }
           } catch {
             // optional discovery
@@ -400,8 +398,8 @@ export class OpenAIAdapter {
             status: 'Connected',
             reachable: true,
             authenticated: true,
-            modelAvailable: Boolean(provider.defaultModel || discovered[0]),
-            models: discovered,
+            modelAvailable: Boolean(provider.defaultModel || catalog.availableIds[0] || catalog.ids[0]),
+            ...catalogFields(),
             error: isRateLimitedStatus(keyRes.status)
               ? 'API key accepted. Provider is rate-limited right now; save the provider and retry generation later.'
               : undefined,
@@ -423,7 +421,7 @@ export class OpenAIAdapter {
           error: await readSafeError(modelsRes),
           reachable: true,
           authenticated: false,
-          models: discovered,
+          ...catalogFields(),
           kind: mapped.kind,
         };
       }
@@ -435,7 +433,7 @@ export class OpenAIAdapter {
           error: `No OpenAI-compatible /models endpoint at ${joinProviderUrl(baseUrl, '/models')}. Normalize the Base URL to end at /v1 (for OmniRoute: http://localhost:20128/v1 locally, or a public HTTPS /v1 URL in production).`,
           reachable: true,
           authenticated: false,
-          models: discovered,
+          ...catalogFields(),
         };
       }
 
@@ -447,31 +445,30 @@ export class OpenAIAdapter {
           error: await readSafeError(modelsRes),
           reachable: true,
           authenticated: false,
-          models: discovered,
+          ...catalogFields(),
         };
       }
 
       if (modelsRes.ok) {
         authenticated = true;
         try {
-          const ids = collectModelIds(await modelsRes.json());
-          for (const id of ids) {
-            if (!discovered.includes(id)) discovered.push(id);
-          }
+          const parsed = parseModelCatalog(await modelsRes.json());
+          if (parsed.ids.length > 0) catalog = parsed;
+          authenticated = true;
         } catch {
           // Body parse is optional for connectivity
         }
-        const selected = provider.defaultModel || discovered[0] || '';
-        const modelKnown = !provider.defaultModel || discovered.includes(provider.defaultModel);
+        const selected = provider.defaultModel || catalog.ids[0] || '';
+        const modelKnown = !provider.defaultModel || catalog.ids.includes(provider.defaultModel);
         return {
           success: true,
           status: 'Connected',
           reachable: true,
           authenticated: true,
-          modelAvailable: Boolean(selected) && (discovered.length === 0 || modelKnown),
-          models: discovered,
+          modelAvailable: Boolean(selected) && (catalog.ids.length === 0 || modelKnown),
+          ...catalogFields(),
           error:
-            provider.defaultModel && discovered.length > 0 && !modelKnown
+            provider.defaultModel && catalog.ids.length > 0 && !modelKnown
               ? `API key accepted. Model '${provider.defaultModel}' is not in the provider catalog.`
               : undefined,
         };
@@ -479,7 +476,7 @@ export class OpenAIAdapter {
         authenticated = true;
       }
 
-      const model = provider.defaultModel || discovered[0] || provider.models[0];
+      const model = provider.defaultModel || catalog.ids[0];
       if (!model) {
         if (authenticated) {
           return {
@@ -488,7 +485,7 @@ export class OpenAIAdapter {
             reachable: true,
             authenticated: true,
             modelAvailable: false,
-            models: discovered,
+            ...catalogFields(),
             error: 'API key accepted. Enter a Model ID to verify a specific model.',
           };
         }
@@ -498,7 +495,7 @@ export class OpenAIAdapter {
           error: 'A Model ID is required to test this provider',
           reachable,
           authenticated,
-          models: discovered,
+          ...catalogFields(),
         };
       }
 
@@ -528,7 +525,7 @@ export class OpenAIAdapter {
           reachable: true,
           authenticated: true,
           modelAvailable: true,
-          models: discovered,
+          ...catalogFields(),
         };
       }
 
@@ -539,7 +536,7 @@ export class OpenAIAdapter {
           error: await readSafeError(res),
           reachable: true,
           authenticated: false,
-          models: discovered,
+          ...catalogFields(),
         };
       }
 
@@ -551,7 +548,7 @@ export class OpenAIAdapter {
             reachable: true,
             authenticated: true,
             modelAvailable: false,
-            models: discovered,
+            ...catalogFields(),
             error: `Credentials work. Model '${model}' was not found; enter a valid Model ID.`,
           };
         }
@@ -562,7 +559,7 @@ export class OpenAIAdapter {
           reachable: true,
           authenticated: true,
           modelAvailable: false,
-          models: discovered,
+          ...catalogFields(),
         };
       }
 
@@ -573,7 +570,7 @@ export class OpenAIAdapter {
           reachable: true,
           authenticated: true,
           modelAvailable: true,
-          models: discovered,
+          ...catalogFields(),
           error: 'Provider accepted the API key. Generation is rate-limited right now; you can still save and use this provider.',
         };
       }
@@ -584,8 +581,8 @@ export class OpenAIAdapter {
           status: 'Connected',
           reachable: true,
           authenticated: true,
-          modelAvailable: discovered.includes(model),
-          models: discovered,
+          modelAvailable: catalog.ids.includes(model),
+          ...catalogFields(),
           error: `Credentials work. Completion probe returned HTTP ${res.status}.`,
         };
       }
@@ -596,7 +593,7 @@ export class OpenAIAdapter {
         error: await readSafeError(res),
         reachable: true,
         authenticated,
-        models: discovered,
+        ...catalogFields(),
       };
     } catch (err: unknown) {
       if (authenticated) {
@@ -605,8 +602,8 @@ export class OpenAIAdapter {
           status: 'Connected',
           reachable: true,
           authenticated: true,
-          modelAvailable: discovered.length > 0,
-          models: discovered,
+          modelAvailable: catalog.ids.length > 0,
+          ...catalogFields(),
         };
       }
       const classified = classifyProviderNetworkError(err, joinProviderUrl(baseUrl, '/models'), this.timeoutMs(provider));
@@ -616,17 +613,18 @@ export class OpenAIAdapter {
         error: sanitizeProviderError(classified.error),
         reachable: classified.reachable,
         authenticated,
-        models: discovered,
+        ...catalogFields(),
         kind: classified.kind,
       };
     }
   }
 
-  static async listModels(provider: AIProvider): Promise<string[]> {
+  static async listCatalog(provider: AIProvider): Promise<ModelCatalog> {
+    const stored = storedCatalog(provider);
     const baseUrl = this.resolveBaseUrl(provider);
-    if (!baseUrl) return provider.models || [];
+    if (!baseUrl) return stored;
     const endpoint = validateProviderEndpoint(baseUrl);
-    if (!endpoint.ok) return provider.models || [];
+    if (!endpoint.ok) return stored;
     try {
       const res = await this.request(provider, joinProviderUrl(baseUrl, '/models'), {
         method: 'GET',
@@ -634,13 +632,17 @@ export class OpenAIAdapter {
       });
 
       if (res.ok) {
-        const ids = collectModelIds(await res.json());
-        if (ids.length > 0) return ids;
+        const parsed = parseModelCatalog(await res.json());
+        if (parsed.ids.length > 0) return parsed;
       }
-      return provider.models || [];
+      return stored;
     } catch {
-      return provider.models || [];
+      return stored;
     }
+  }
+
+  static async listModels(provider: AIProvider): Promise<string[]> {
+    return (await this.listCatalog(provider)).ids;
   }
 
   static buildMessages(params: GenerateParams) {
@@ -903,9 +905,12 @@ export class AnthropicAdapter {
     }
   }
 
-  static async listModels(provider: AIProvider): Promise<string[]> {
+  static async listCatalog(provider: AIProvider): Promise<ModelCatalog> {
+    const stored = storedCatalog(provider);
     const baseUrl = this.resolveBaseUrl(provider);
-    if (!baseUrl) return provider.models || [];
+    if (!baseUrl) return stored;
+    const endpoint = validateProviderEndpoint(baseUrl);
+    if (!endpoint.ok) return stored;
     try {
       const res = await fetchWithTimeout(
         joinProviderUrl(baseUrl, '/models'),
@@ -913,17 +918,17 @@ export class AnthropicAdapter {
         this.timeoutMs(provider)
       );
       if (res.ok) {
-        const data = await res.json();
-        const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-        const ids = rows
-          .map((m: { id?: string; name?: string }) => m.id || m.name)
-          .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
-        if (ids.length > 0) return ids;
+        const parsed = parseModelCatalog(await res.json());
+        if (parsed.ids.length > 0) return parsed;
       }
     } catch {
       // Discovery is optional
     }
-    return provider.models || [];
+    return stored;
+  }
+
+  static async listModels(provider: AIProvider): Promise<string[]> {
+    return (await this.listCatalog(provider)).ids;
   }
 
   static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {
@@ -1123,8 +1128,11 @@ export class CustomHTTPAdapter {
     }
   }
 
-  static async listModels(provider: AIProvider): Promise<string[]> {
-    if (!provider.baseUrl) return provider.models || [];
+  static async listCatalog(provider: AIProvider): Promise<ModelCatalog> {
+    const stored = storedCatalog(provider);
+    if (!provider.baseUrl) return stored;
+    const endpoint = validateProviderEndpoint(provider.baseUrl);
+    if (!endpoint.ok) return stored;
     try {
       const modelsUrl = joinProviderUrl(provider.baseUrl.replace(/\/+$/, ''), '/models');
       const res = await fetchWithTimeout(
@@ -1133,17 +1141,17 @@ export class CustomHTTPAdapter {
         this.timeoutMs(provider)
       );
       if (res.ok) {
-        const data = await res.json();
-        const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-        const ids = rows
-          .map((m: { id?: string; name?: string }) => m.id || m.name)
-          .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
-        if (ids.length > 0) return ids;
+        const parsed = parseModelCatalog(await res.json());
+        if (parsed.ids.length > 0) return parsed;
       }
     } catch {
       // Discovery is optional
     }
-    return provider.models || [];
+    return stored;
+  }
+
+  static async listModels(provider: AIProvider): Promise<string[]> {
+    return (await this.listCatalog(provider)).ids;
   }
 
   static async generate(provider: AIProvider, params: GenerateParams): Promise<NormalizedResponse> {

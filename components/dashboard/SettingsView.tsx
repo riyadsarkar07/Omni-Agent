@@ -9,8 +9,11 @@ import {
   Check,
   Server,
   FileCode2,
+  Route,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/auth/session-client';
+import { DEFAULT_ROUTING_SETTINGS, type RoutingSettings } from '@/lib/providers/routing-policy';
+import { AIProvider } from '@/lib/providers/types';
 
 interface SettingsViewProps {
   isSupabaseConnected: boolean;
@@ -23,26 +26,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isSupabaseConnected 
   const [copiedMigration, setCopiedMigration] = useState(false);
   const [defaultModel, setDefaultModel] = useState('gemini-3.8-flash');
   const [adminContactEmail, setAdminContactEmail] = useState('');
+  const [routing, setRouting] = useState<RoutingSettings>({ ...DEFAULT_ROUTING_SETTINGS });
+  const [providers, setProviders] = useState<AIProvider[]>([]);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let ignore = false;
-    Promise.all([apiFetch('/api/v1/admin/settings'), apiFetch('/api/v1/health')])
-      .then(async ([settingsRes, healthRes]) => {
+    Promise.all([
+      apiFetch('/api/v1/admin/settings'),
+      apiFetch('/api/v1/health'),
+      apiFetch('/api/v1/providers').catch(() => null),
+    ])
+      .then(async ([settingsRes, healthRes, providersRes]) => {
         const settingsData = await settingsRes.json().catch(() => ({}));
         const healthData = await healthRes.json().catch(() => ({}));
+        const providerData = providersRes ? await providersRes.json().catch(() => ({ providers: [] })) : { providers: [] };
         if (ignore) return;
         if (settingsRes.ok) {
           if (settingsData.settings?.default_model) setDefaultModel(settingsData.settings.default_model);
           if (settingsData.settings?.admin_contact_email) setAdminContactEmail(settingsData.settings.admin_contact_email);
+          if (settingsData.settings?.routing) setRouting({ ...DEFAULT_ROUTING_SETTINGS, ...settingsData.settings.routing });
         }
         if (healthRes.ok) {
           setGeminiConfigured(Boolean(healthData.gemini_engine?.configured));
           setGeminiConnectivity(healthData.gemini_engine?.connectivity || 'not-probed');
           setDatabaseStatus(healthData.database?.status || (isSupabaseConnected ? 'connected' : 'in-memory'));
         }
+        if (Array.isArray(providerData.providers)) setProviders(providerData.providers);
       })
       .catch(() => {});
     return () => {
@@ -86,6 +98,7 @@ CREATE TABLE IF NOT EXISTS public.projects (
         body: JSON.stringify({
           default_model: defaultModel,
           admin_contact_email: adminContactEmail || null,
+          routing,
         }),
       });
       const data = await res.json();
@@ -255,6 +268,127 @@ CREATE TABLE IF NOT EXISTS public.projects (
                 className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/20"
               />
             </div>
+          </div>
+
+          <div className="border-t border-white/5 pt-4 space-y-4">
+            <h4 className="font-bold text-sm text-white flex items-center gap-2">
+              <Route className="w-4 h-4 text-cyan-400" />
+              Smart Routing
+            </h4>
+            <p className="text-[11px] text-zinc-500">
+              Explicit playground or API provider/model always wins. Auto only runs when enabled here and the client chooses Auto.
+            </p>
+            <label className="flex min-h-12 items-center justify-between rounded-xl border border-white/5 bg-zinc-950/50 px-4">
+              <span>
+                <span className="block text-xs font-semibold text-zinc-200">Enable Auto routing</span>
+                <span className="text-[10px] text-zinc-500">Pick a healthy provider only when Auto is selected</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={routing.autoRoutingEnabled}
+                onChange={(e) => setRouting((prev) => ({ ...prev, autoRoutingEnabled: e.target.checked }))}
+                className="h-4 w-4 accent-cyan-500"
+              />
+            </label>
+            <label className="flex min-h-12 items-center justify-between rounded-xl border border-white/5 bg-zinc-950/50 px-4">
+              <span>
+                <span className="block text-xs font-semibold text-zinc-200">Enable fallback</span>
+                <span className="text-[10px] text-zinc-500">Off by default. Does not switch after the first stream token</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={routing.fallbackEnabled}
+                onChange={(e) => setRouting((prev) => ({ ...prev, fallbackEnabled: e.target.checked }))}
+                className="h-4 w-4 accent-cyan-500"
+              />
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Preferred provider</label>
+                <select
+                  value={routing.preferredProviderId || ''}
+                  onChange={(e) => setRouting((prev) => ({ ...prev, preferredProviderId: e.target.value || null }))}
+                  className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none"
+                >
+                  <option value="">None</option>
+                  {providers.filter((p) => p.enabled).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Preferred model</label>
+                <input
+                  value={routing.preferredModel || ''}
+                  onChange={(e) => setRouting((prev) => ({ ...prev, preferredModel: e.target.value || null }))}
+                  placeholder="optional model id"
+                  className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Max retries</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={4}
+                  value={routing.maxRetries}
+                  onChange={(e) => setRouting((prev) => ({ ...prev, maxRetries: Number(e.target.value) }))}
+                  className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Request timeout (ms)</label>
+                <input
+                  type="number"
+                  min={1000}
+                  max={120000}
+                  value={routing.requestTimeoutMs}
+                  onChange={(e) => setRouting((prev) => ({ ...prev, requestTimeoutMs: Number(e.target.value) }))}
+                  className="w-full bg-zinc-900 border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none"
+                />
+              </div>
+            </div>
+            {routing.fallbackEnabled && (
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Fallback candidates</label>
+                {(routing.fallbackCandidates.length ? routing.fallbackCandidates : [{ providerId: '', model: '' }]).map((item, index) => (
+                  <div key={`${item.providerId}-${index}`} className="grid grid-cols-2 gap-2">
+                    <select
+                      value={item.providerId}
+                      onChange={(e) => {
+                        const next = [...routing.fallbackCandidates];
+                        if (!next[index]) next[index] = { providerId: '', model: '' };
+                        next[index] = { ...next[index], providerId: e.target.value };
+                        setRouting((prev) => ({ ...prev, fallbackCandidates: next.filter((c) => c.providerId) }));
+                      }}
+                      className="w-full bg-zinc-900 border-white/10 rounded-xl px-3 py-2 text-xs"
+                    >
+                      <option value="">Select provider</option>
+                      {providers.filter((p) => p.enabled).map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      value={item.model || ''}
+                      onChange={(e) => {
+                        const next = [...(routing.fallbackCandidates.length ? routing.fallbackCandidates : [{ providerId: '', model: '' }])];
+                        next[index] = { ...(next[index] || { providerId: '' }), model: e.target.value };
+                        setRouting((prev) => ({ ...prev, fallbackCandidates: next }));
+                      }}
+                      placeholder="optional model"
+                      className="w-full bg-zinc-900 border-white/10 rounded-xl px-3 py-2 text-xs"
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setRouting((prev) => ({ ...prev, fallbackCandidates: [...prev.fallbackCandidates, { providerId: '', model: '' }] }))}
+                  className="text-[11px] text-cyan-400 font-semibold"
+                >
+                  Add fallback candidate
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-2">

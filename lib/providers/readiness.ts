@@ -18,6 +18,8 @@ function failedResult(
     authenticated: extras?.authenticated ?? false,
     modelAvailable: extras?.modelAvailable ?? false,
     models: extras?.models || [],
+    availableModels: extras?.availableModels,
+    availabilityKnown: extras?.availabilityKnown,
     kind: extras?.kind,
     chatVerified: false,
     streamingVerified: false,
@@ -98,6 +100,8 @@ export async function runOpenAICompatibleReadiness(provider: AIProvider): Promis
       error: sanitizeProviderError(modelsTest.error || 'GET /v1/models did not succeed.'),
       chatVerified: false,
       streamingVerified: false,
+      availableModels: modelsTest.availableModels,
+      availabilityKnown: modelsTest.availabilityKnown,
       checks,
     };
   }
@@ -118,6 +122,8 @@ export async function runOpenAICompatibleReadiness(provider: AIProvider): Promis
       reachable: true,
       authenticated: true,
       models: modelsTest.models,
+      availableModels: modelsTest.availableModels,
+      availabilityKnown: modelsTest.availabilityKnown,
       kind: 'http',
     });
   }
@@ -153,6 +159,8 @@ export async function runOpenAICompatibleReadiness(provider: AIProvider): Promis
       authenticated: true,
       modelAvailable: modelsTest.modelAvailable,
       models: modelsTest.models,
+      availableModels: modelsTest.availableModels,
+      availabilityKnown: modelsTest.availabilityKnown,
       kind: chatKind,
     });
   }
@@ -203,6 +211,8 @@ export async function runOpenAICompatibleReadiness(provider: AIProvider): Promis
         authenticated: true,
         modelAvailable: true,
         models: modelsTest.models,
+        availableModels: modelsTest.availableModels,
+        availabilityKnown: modelsTest.availabilityKnown,
         chatVerified: true,
         streamingVerified: false,
         kind: 'ok',
@@ -226,6 +236,8 @@ export async function runOpenAICompatibleReadiness(provider: AIProvider): Promis
     authenticated: true,
     modelAvailable: true,
     models: modelsTest.models,
+    availableModels: modelsTest.availableModels,
+    availabilityKnown: modelsTest.availabilityKnown,
     chatVerified: true,
     streamingVerified: streamingRequested ? streamingVerified : undefined,
     kind: 'ok',

@@ -16,6 +16,7 @@ interface AgentParametersProps {
   providers: AIProvider[];
   selectedProviderId: string;
   onProviderChange: (id: string) => void;
+  autoEnabled?: boolean;
   models: string[];
   model: string;
   onModelChange: (model: string) => void;
@@ -91,6 +92,7 @@ export const AgentParameters: React.FC<AgentParametersProps> = (props) => {
           providers={props.providers}
           value={props.selectedProviderId}
           onChange={props.onProviderChange}
+          autoEnabled={props.autoEnabled}
         />
 
         <ModelSelector models={props.models} value={props.model} onChange={props.onModelChange} />

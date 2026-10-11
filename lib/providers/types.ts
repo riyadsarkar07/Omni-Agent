@@ -34,6 +34,13 @@ export type ConnectionStatus =
   | 'Configuration Error'
   | 'Untested';
 
+export interface ProviderModelCatalogMeta {
+  availableIds?: string[];
+  availabilityKnown?: boolean;
+  listedCount?: number;
+  discoveredAt?: string;
+}
+
 export interface ProviderMetadata {
   organizationId?: string;
   apiVersion?: string;
@@ -43,6 +50,8 @@ export interface ProviderMetadata {
   temperature?: number;
   maxTokens?: number;
   streamingEnabled?: boolean;
+  modelCatalog?: ProviderModelCatalogMeta;
+  health?: import('./health').ProviderHealthSnapshot;
 }
 
 export interface ProviderConfig {
@@ -70,6 +79,8 @@ export interface AIProvider {
   enabled: boolean;
   defaultModel: string;
   models: string[];
+  availableModels?: string[];
+  catalogAvailabilityKnown?: boolean;
   capabilities: ProviderCapability[];
   lastTested?: string | null;
   connectionStatus: ConnectionStatus;
@@ -133,6 +144,38 @@ export interface NormalizedResponse {
   requestId: string;
   latency: number;
   metadata?: Record<string, any>;
+  requestedProviderId?: string;
+  requestedModel?: string;
+  selectedProviderId?: string;
+  selectedModel?: string;
+  fallbackAttempts?: number;
+  routingReason?: string;
+}
+
+export interface GenerateRouteOptions {
+  fallbackProviderId?: string;
+  fallbackModel?: string;
+  auto?: boolean;
+  requirements?: RouteRequirementsLike;
+}
+
+export interface RouteRequirementsLike {
+  capabilities?: ProviderCapability[];
+  stream?: boolean;
+  tools?: boolean;
+  vision?: boolean;
+  files?: boolean;
+}
+
+export interface RouteSummary {
+  providerId: string;
+  providerName: string;
+  model: string;
+  reason: string;
+  requestedProviderId?: string | null;
+  requestedModel?: string | null;
+  fallbackAttempts: number;
+  attempts?: Array<{ providerId: string; model: string; reason: string; category?: string }>;
 }
 
 export type ReadinessCheckId =
@@ -158,6 +201,8 @@ export interface ConnectionTestResult {
   authenticated?: boolean;
   modelAvailable?: boolean;
   models?: string[];
+  availableModels?: string[];
+  availabilityKnown?: boolean;
   latencyMs?: number;
   kind?: string;
   streamingVerified?: boolean;

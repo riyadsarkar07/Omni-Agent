@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     if ('error' in parsed && parsed.error) return parsed.error;
     const { data, prepared } = parsed;
 
-    const resolved = await resolveChatAgent(auth, data.agentId, data.overrideProviderId);
+    const resolved = await resolveChatAgent(auth, data.agentId, data.auto ? undefined : data.overrideProviderId);
     if ('error' in resolved) return resolved.error;
 
     const stream = await runPreparedChat({

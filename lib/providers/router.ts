@@ -1,10 +1,21 @@
-import { AIProvider, GenerateParams, NormalizedResponse, ConnectionTestResult } from './types';
+import { AIProvider, GenerateParams, GenerateRouteOptions, NormalizedResponse, ConnectionTestResult } from './types';
 import { GeminiAdapter, OpenAIAdapter, AnthropicAdapter, CustomHTTPAdapter } from './adapters';
 import { DatabaseStore } from '../db/store';
 import { sanitizeProviderError } from './secrets';
 import { isValidHttpUrl } from './catalog';
 import { validateProviderEndpoint } from './endpoint';
 import { runOpenAICompatibleReadiness } from './readiness';
+import { unknownCatalog, type ModelCatalog } from './model-catalog';
+import {
+  buildFallbackChain,
+  normalizeRoutingSettings,
+  resolvePrimaryTarget,
+  type RouteRequest,
+  type RouteTarget,
+  type RoutingSettings,
+} from './routing-policy';
+import { executeWithFallback, type RouteAttempt } from './routing-runtime';
+import { classifyProviderError } from './errors';
 
 function isGeminiModelId(model?: string): boolean {
   const value = (model || '').toLowerCase();
@@ -112,26 +123,100 @@ export class ModelRouter {
     return { ok: true };
   }
 
+  static async loadRoutingContext(): Promise<{
+    providers: AIProvider[];
+    settings: RoutingSettings;
+    fallback?: AIProvider;
+  }> {
+    const [listed, settings, fallback] = await Promise.all([
+      DatabaseStore.listProviders(true),
+      DatabaseStore.getPlatformSettings().catch(() => ({ routing: undefined })),
+      DatabaseStore.getDefaultProvider(true).catch(() => null),
+    ]);
+    const providers = listed.map((p) => this.hydrateBuiltinSecrets(p));
+    if (!providers.some((p) => p.id === 'gemini' || p.id === 'google-gemini' || p.id === 'native')) {
+      providers.push(this.builtinGemini());
+    }
+    return {
+      providers,
+      settings: normalizeRoutingSettings(settings.routing),
+      fallback: fallback ? this.hydrateBuiltinSecrets(fallback) : this.builtinGemini(),
+    };
+  }
+
+  static async resolveRoute(
+    providerId: string | undefined,
+    model: string | undefined,
+    options?: GenerateRouteOptions
+  ): Promise<{ target: RouteTarget; chain: RouteTarget[]; settings: RoutingSettings; request: RouteRequest }> {
+    const { providers, settings, fallback } = await this.loadRoutingContext();
+    const request: RouteRequest = {
+      explicitProviderId: options?.auto ? undefined : providerId,
+      explicitModel: options?.auto ? undefined : model,
+      auto: options?.auto,
+      fallbackProviderId: options?.fallbackProviderId,
+      fallbackModel: options?.fallbackModel,
+      requirements: options?.requirements,
+    };
+    let target = resolvePrimaryTarget(providers, settings, request, fallback);
+    if (!target && (providerId || model) && !options?.auto) {
+      const provider = await this.resolveProvider(providerId, model);
+      const resolvedModel = model || provider.defaultModel || '';
+      if (resolvedModel) {
+        target = { provider, model: resolvedModel, reason: 'explicit' };
+      }
+    }
+    if (!target) {
+      throw new Error('No enabled provider/model is available for this request.');
+    }
+    return {
+      target,
+      chain: buildFallbackChain(target, providers, settings, request),
+      settings,
+      request,
+    };
+  }
+
   static async generate(
     providerId: string | undefined,
     params: GenerateParams,
-    fallbackProviderId?: string
+    fallbackProviderId?: string | GenerateRouteOptions
   ): Promise<NormalizedResponse> {
-    const provider = await this.resolveProvider(providerId, params.model);
+    const options: GenerateRouteOptions =
+      typeof fallbackProviderId === 'string' ? { fallbackProviderId } : fallbackProviderId || {};
+    const { target, chain, settings, request } = await this.resolveRoute(providerId, params.model, options);
+    const requestedProviderId = request.explicitProviderId || null;
+    const requestedModel = request.explicitModel || params.model || null;
 
     try {
-      return await this.dispatchGenerate(provider, params);
+      const outcome = await executeWithFallback({
+        chain,
+        maxRetries: settings.maxRetries,
+        invoke: async (item) => {
+          const provider = this.withRequestTimeout(item.provider, settings.requestTimeoutMs);
+          return await this.dispatchGenerate(provider, { ...params, model: item.model });
+        },
+      });
+      return {
+        ...outcome.result,
+        provider: outcome.target.provider.name,
+        model: outcome.target.model,
+        requestedProviderId: requestedProviderId || undefined,
+        requestedModel: requestedModel || undefined,
+        selectedProviderId: outcome.target.provider.id,
+        selectedModel: outcome.target.model,
+        fallbackAttempts: Math.max(0, outcome.attempts.length - 1),
+        routingReason: outcome.target.reason,
+        metadata: {
+          ...(outcome.result.metadata || {}),
+          routing: {
+            reason: outcome.target.reason,
+            attempts: outcome.attempts,
+          },
+        },
+      };
     } catch (error: unknown) {
-      const message = sanitizeProviderError((error as Error).message || 'Provider request failed');
-      console.error(`Primary provider ${provider.id} failed`);
-      if (fallbackProviderId && fallbackProviderId !== provider.id) {
-        const fallback = await this.resolveProvider(fallbackProviderId);
-        return await this.dispatchGenerate(fallback, {
-          ...params,
-          model: params.model || fallback.defaultModel,
-        });
-      }
-      throw new Error(message);
+      throw this.wrapRouteError(error, requestedProviderId, requestedModel);
     }
   }
 
@@ -153,22 +238,68 @@ export class ModelRouter {
   static async generateStream(
     providerId: string | undefined,
     params: GenerateParams,
-    fallbackProviderId?: string
-  ): Promise<ReadableStream<Uint8Array>> {
-    const provider = await this.resolveProvider(providerId, params.model);
+    fallbackProviderId?: string | GenerateRouteOptions
+  ): Promise<ReadableStream<Uint8Array> & { route?: { providerId: string; model: string; reason: string } }> {
+    const options: GenerateRouteOptions =
+      typeof fallbackProviderId === 'string'
+        ? { fallbackProviderId, requirements: { stream: true } }
+        : { ...(fallbackProviderId || {}), requirements: { stream: true, ...(fallbackProviderId?.requirements || {}) } };
+    const { chain, settings, request } = await this.resolveRoute(providerId, params.model, options);
+    let streamStarted = false;
 
     try {
-      return await this.dispatchStream(provider, params);
+      const outcome = await executeWithFallback({
+        chain,
+        maxRetries: settings.maxRetries,
+        streamStarted: () => streamStarted,
+        invoke: async (item) => {
+          const provider = this.withRequestTimeout(item.provider, settings.requestTimeoutMs);
+          const stream = await this.dispatchStream(provider, { ...params, model: item.model });
+          streamStarted = true;
+          return Object.assign(stream, {
+            route: { providerId: item.provider.id, model: item.model, reason: item.reason },
+          });
+        },
+      });
+      return Object.assign(outcome.result, {
+        route: {
+          providerId: outcome.target.provider.id,
+          model: outcome.target.model,
+          reason: outcome.target.reason,
+          requestedProviderId: request.explicitProviderId || null,
+          requestedModel: request.explicitModel || params.model || null,
+          fallbackAttempts: Math.max(0, outcome.attempts.length - 1),
+        },
+      });
     } catch (error: unknown) {
-      if (fallbackProviderId && fallbackProviderId !== provider.id) {
-        const fallback = await this.resolveProvider(fallbackProviderId);
-        return await this.dispatchStream(fallback, {
-          ...params,
-          model: params.model || fallback.defaultModel,
-        });
-      }
-      throw error;
+      throw this.wrapRouteError(error, request.explicitProviderId, request.explicitModel || params.model);
     }
+  }
+
+  private static withRequestTimeout(provider: AIProvider, timeoutMs: number): AIProvider {
+    return {
+      ...provider,
+      metadata: {
+        ...(provider.metadata || {}),
+        requestTimeoutMs: timeoutMs || provider.metadata?.requestTimeoutMs || 20000,
+        maxRetries: 0,
+      },
+    };
+  }
+
+  private static wrapRouteError(error: unknown, requestedProviderId?: string | null, requestedModel?: string | null): Error {
+    const classified = (error as { classified?: ReturnType<typeof classifyProviderError> }).classified
+      || classifyProviderError(error);
+    const attempts = ((error as { attempts?: RouteAttempt[] }).attempts || []) as RouteAttempt[];
+    const message = sanitizeProviderError(classified.message || (error as Error).message || 'Provider request failed');
+    return Object.assign(new Error(message), {
+      classified,
+      attempts,
+      streamed: Boolean((error as { streamed?: boolean }).streamed),
+      requestedProviderId: requestedProviderId || null,
+      requestedModel: requestedModel || null,
+      failureCategory: classified.category,
+    });
   }
 
   private static async dispatchStream(provider: AIProvider, params: GenerateParams): Promise<ReadableStream<Uint8Array>> {
@@ -202,19 +333,23 @@ export class ModelRouter {
     }
   }
 
-  static async listModels(provider: AIProvider): Promise<string[]> {
+  static async listCatalog(provider: AIProvider): Promise<ModelCatalog> {
     const hydrated = this.hydrateBuiltinSecrets(provider);
     switch (hydrated.protocol) {
       case 'gemini':
-        return await GeminiAdapter.listModels(hydrated);
+        return await GeminiAdapter.listCatalog(hydrated);
       case 'openai':
-        return await OpenAIAdapter.listModels(hydrated);
+        return await OpenAIAdapter.listCatalog(hydrated);
       case 'anthropic':
-        return await AnthropicAdapter.listModels(hydrated);
+        return await AnthropicAdapter.listCatalog(hydrated);
       case 'custom':
-        return await CustomHTTPAdapter.listModels(hydrated);
+        return await CustomHTTPAdapter.listCatalog(hydrated);
       default:
-        return hydrated.models || [];
+        return unknownCatalog(hydrated.models || []);
     }
+  }
+
+  static async listModels(provider: AIProvider): Promise<string[]> {
+    return (await this.listCatalog(provider)).ids;
   }
 }

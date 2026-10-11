@@ -20,8 +20,12 @@ export async function GET(req: NextRequest) {
     const userDefault = auth.user?.preferences?.default_model || null;
     const models = providers
       .filter((p) => p.enabled)
-      .flatMap((p) =>
-        (p.models || []).map((model) => ({
+      .flatMap((p) => {
+        const available = new Set(p.availableModels || p.metadata?.modelCatalog?.availableIds || []);
+        const availabilityKnown = Boolean(
+          p.catalogAvailabilityKnown ?? p.metadata?.modelCatalog?.availabilityKnown
+        );
+        return (p.models || []).map((model) => ({
           id: model,
           providerId: p.id,
           providerName: p.name,
@@ -29,8 +33,11 @@ export async function GET(req: NextRequest) {
           capabilities: p.capabilities || [],
           vision: providerSupportsVision(p, model) || modelLooksLikeVision(model),
           isDefault: p.isDefault && p.defaultModel === model,
-        }))
-      );
+          listed: true,
+          availabilityKnown,
+          available: availabilityKnown ? available.has(model) : null,
+        }));
+      });
 
     return applyCorsHeaders(
       NextResponse.json({
@@ -42,6 +49,9 @@ export async function GET(req: NextRequest) {
           providers.find((p) => p.isDefault)?.defaultModel ||
           models[0]?.id ||
           null,
+        routing: {
+          autoRoutingEnabled: Boolean((settings as { routing?: { autoRoutingEnabled?: boolean } }).routing?.autoRoutingEnabled),
+        },
       })
     );
   } catch (err: unknown) {

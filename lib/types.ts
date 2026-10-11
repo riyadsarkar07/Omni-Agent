@@ -8,6 +8,29 @@ export type GeminiModelId =
 export type UserRole = 'admin' | 'developer' | 'viewer';
 export type UserStatus = 'active' | 'disabled';
 
+export interface FallbackCandidate {
+  providerId: string;
+  model?: string;
+}
+
+export interface RoutingSettings {
+  autoRoutingEnabled: boolean;
+  fallbackEnabled: boolean;
+  preferredProviderId: string | null;
+  preferredModel: string | null;
+  fallbackCandidates: FallbackCandidate[];
+  maxRetries: number;
+  requestTimeoutMs: number;
+}
+
+export interface PlatformSettings {
+  default_model: string | null;
+  admin_contact_email: string | null;
+  routing?: RoutingSettings;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
 export interface UserPreferences {
   default_model?: string | null;
   default_provider_id?: string | null;
@@ -221,6 +244,12 @@ export interface UsageLog {
   user_id?: string | null;
   endpoint: string;
   model: string;
+  requested_provider_id?: string | null;
+  requested_model?: string | null;
+  selected_provider_id?: string | null;
+  selected_model?: string | null;
+  fallback_attempts?: number | null;
+  failure_category?: string | null;
   prompt_tokens: number;
   candidate_tokens: number;
   total_tokens: number;

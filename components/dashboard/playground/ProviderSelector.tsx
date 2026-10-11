@@ -7,7 +7,8 @@ export const ProviderSelector: React.FC<{
   providers: AIProvider[];
   value: string;
   onChange: (providerId: string) => void;
-}> = ({ providers, value, onChange }) => {
+  autoEnabled?: boolean;
+}> = ({ providers, value, onChange, autoEnabled }) => {
   const enabled = providers.filter((p) => p.enabled);
 
   return (
@@ -21,6 +22,7 @@ export const ProviderSelector: React.FC<{
         onChange={(e) => onChange(e.target.value)}
         className="h-11 w-full rounded-lg border border-white/10 bg-zinc-950 px-3 text-xs text-zinc-200 focus:border-cyan-500/40 focus:outline-none"
       >
+        {autoEnabled && <option value="auto">Auto</option>}
         {enabled.length === 0 && <option value="">No providers available</option>}
         {enabled.map((p) => (
           <option key={p.id} value={p.id}>

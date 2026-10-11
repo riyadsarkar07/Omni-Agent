@@ -10,6 +10,7 @@ export const chatRequestSchema = z.object({
   conversationId: z.string().optional(),
   overrideModel: z.string().optional(),
   overrideProviderId: z.string().optional(),
+  auto: z.boolean().optional(),
   thinkingLevel: z.enum(['HIGH', 'LOW', 'MINIMAL', 'OFF']).optional(),
   attachmentIds: z.array(z.string().min(1).max(80)).max(8).optional(),
 });

@@ -10,6 +10,9 @@ interface CatalogModel {
   providerName: string;
   protocol?: string;
   isDefault?: boolean;
+  listed?: boolean;
+  available?: boolean | null;
+  availabilityKnown?: boolean;
 }
 
 export const ModelsCatalogView: React.FC = () => {
@@ -51,7 +54,7 @@ export const ModelsCatalogView: React.FC = () => {
       <div>
         <h2 className="text-2xl font-extrabold text-white tracking-tight">Models</h2>
         <p className="text-zinc-400 text-sm mt-1">
-          Catalog of models exposed by enabled providers. Provider credentials stay on the server.
+          Catalog of models listed by enabled providers. Listed IDs are not assumed active unless the provider reports availability.
         </p>
       </div>
 
@@ -74,13 +77,21 @@ export const ModelsCatalogView: React.FC = () => {
             </div>
             <div className="space-y-2">
               {list.map((model) => (
-                <div key={`${model.providerId}:${model.id}`} className="flex items-center justify-between text-xs">
+                <div key={`${model.providerId}:${model.id}`} className="flex items-center justify-between text-xs gap-3">
                   <span className="font-mono text-zinc-300">{model.id}</span>
-                  {model.isDefault || model.id === defaultModel ? (
-                    <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold">Default</span>
-                  ) : (
+                  <span className="flex items-center gap-2 shrink-0">
+                    {model.isDefault || model.id === defaultModel ? (
+                      <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold">Default</span>
+                    ) : null}
+                    {model.availabilityKnown ? (
+                      <span className={`text-[10px] uppercase tracking-wider font-bold ${model.available ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                        {model.available ? 'Active' : 'Listed'}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Listed</span>
+                    )}
                     <Activity className="w-3 h-3 text-zinc-600" />
-                  )}
+                  </span>
                 </div>
               ))}
             </div>

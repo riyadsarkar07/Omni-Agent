@@ -62,7 +62,7 @@ export async function resolveChatAgent(
     };
   }
 
-  if (overrideProviderId) {
+  if (overrideProviderId && overrideProviderId !== 'auto') {
     targetAgent = {
       ...targetAgent,
       provider_id: overrideProviderId,
@@ -147,7 +147,9 @@ export async function runPreparedChat(params: {
     projectId: params.auth.project.id,
     apiKeyId: params.auth.apiKey?.id,
     userId: params.auth.user?.id,
-    overrideModel: params.data.overrideModel,
+    overrideModel: params.data.auto ? undefined : params.data.overrideModel,
+    overrideProviderId: params.data.auto ? undefined : params.data.overrideProviderId,
+    auto: Boolean(params.data.auto),
     overrideThinkingLevel: params.data.thinkingLevel,
     useKnowledge: true,
     knowledgeQuery: (params.data.message || '').trim() || params.prepared.storedMessage,

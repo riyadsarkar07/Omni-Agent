@@ -1,10 +1,11 @@
-import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview, UserPreferences, UserMemory, UserFile, ResourceShare, ShareResourceType, SharePermission, KnowledgeChunk, KnowledgeDocument, KnowledgeHit, AuthSessionRecord } from '../types';
+import { Project, Agent, ApiKey, Conversation, ChatMessage, UsageLog, AuditLog, User, AuthSession, UserRole, UserStatus, PlatformOverview, UserPreferences, UserMemory, UserFile, ResourceShare, ShareResourceType, SharePermission, KnowledgeChunk, KnowledgeDocument, KnowledgeHit, AuthSessionRecord, PlatformSettings } from '../types';
 import { AIProvider } from '../providers/types';
 import { hashApiKey } from '../auth/api-key';
 import { getAdminEmail, getAdminPassword, isProduction } from '../config';
 import { encryptProviderSecret } from '../providers/secrets';
 import { kindFromProtocol, slugifyProviderId } from '../providers/catalog';
 import { mapRowToProvider, toDbProviderRow, toPublicProvider } from '../providers/mapping';
+import { DEFAULT_ROUTING_SETTINGS, normalizeRoutingSettings, RoutingSettings } from '../providers/routing-policy';
 import { getSupabaseAdmin, getSupabaseAuth, isSupabaseConfigured as supabaseConfigured, DEFAULT_PROJECT_ID, DEFAULT_PROJECT_SLUG } from './supabase';
 import {
   AuthDirectoryUser,
@@ -54,7 +55,7 @@ interface MemoryStore {
   auditLogs: AuditLog[];
   providers: AIProvider[];
   deletedProviderIds: string[];
-  platformSettings: { default_model: string | null; admin_contact_email: string | null; updated_at: string; updated_by: string | null };
+  platformSettings: PlatformSettings;
   memories: UserMemory[];
   files: UserFile[];
   shares: ResourceShare[];
@@ -332,6 +333,7 @@ if (!globalForStore.memoryStore) {
     platformSettings: {
       default_model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
       admin_contact_email: getAdminEmail(),
+      routing: { ...DEFAULT_ROUTING_SETTINGS },
       updated_at: new Date().toISOString(),
       updated_by: null,
     },
@@ -347,13 +349,16 @@ const memoryStore = globalForStore.memoryStore!;
 if (!memoryStore.deletedProviderIds) memoryStore.deletedProviderIds = [];
 if (!memoryStore.projectMembers) memoryStore.projectMembers = [];
 if (!memoryStore.platformSettings) {
-  memoryStore.platformSettings = {
-    default_model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-    admin_contact_email: getAdminEmail(),
-    updated_at: new Date().toISOString(),
-    updated_by: null,
-  };
-}
+    memoryStore.platformSettings = {
+      default_model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+      admin_contact_email: getAdminEmail(),
+      routing: { ...DEFAULT_ROUTING_SETTINGS },
+      updated_at: new Date().toISOString(),
+      updated_by: null,
+    };
+  } else if (!memoryStore.platformSettings.routing) {
+    memoryStore.platformSettings.routing = { ...DEFAULT_ROUTING_SETTINGS };
+  }
 if (!memoryStore.memories) memoryStore.memories = [];
 if (!memoryStore.files) memoryStore.files = [];
 if (!memoryStore.shares) memoryStore.shares = [];
@@ -1273,12 +1278,7 @@ export class DatabaseStore {
     }
   }
 
-  static async getPlatformSettings(): Promise<{
-    default_model: string | null;
-    admin_contact_email: string | null;
-    updated_at: string | null;
-    updated_by: string | null;
-  }> {
+  static async getPlatformSettings(): Promise<PlatformSettings> {
     if (supabase) {
       try {
         const { data, error } = await supabase.from('platform_settings').select('*').eq('id', 'global').maybeSingle();
@@ -1286,6 +1286,7 @@ export class DatabaseStore {
           return {
             default_model: data.default_model || null,
             admin_contact_email: data.admin_contact_email || null,
+            routing: normalizeRoutingSettings((data as { routing?: unknown }).routing),
             updated_at: data.updated_at || null,
             updated_by: data.updated_by || null,
           };
@@ -1294,44 +1295,41 @@ export class DatabaseStore {
         console.error('Supabase getPlatformSettings error, falling back to memoryStore:', err);
       }
     }
-    return { ...memoryStore.platformSettings };
+    return {
+      ...memoryStore.platformSettings,
+      routing: normalizeRoutingSettings(memoryStore.platformSettings.routing),
+    };
   }
 
   static async updatePlatformSettings(
-    updates: { default_model?: string | null; admin_contact_email?: string | null },
+    updates: { default_model?: string | null; admin_contact_email?: string | null; routing?: RoutingSettings },
     updatedBy?: string
-  ): Promise<{
-    default_model: string | null;
-    admin_contact_email: string | null;
-    updated_at: string | null;
-    updated_by: string | null;
-  }> {
-    const next = {
-      default_model: updates.default_model !== undefined ? updates.default_model : memoryStore.platformSettings.default_model,
+  ): Promise<PlatformSettings> {
+    const current = await this.getPlatformSettings();
+    const next: PlatformSettings = {
+      default_model: updates.default_model !== undefined ? updates.default_model : current.default_model,
       admin_contact_email:
-        updates.admin_contact_email !== undefined
-          ? updates.admin_contact_email
-          : memoryStore.platformSettings.admin_contact_email,
+        updates.admin_contact_email !== undefined ? updates.admin_contact_email : current.admin_contact_email,
+      routing: updates.routing ? normalizeRoutingSettings(updates.routing) : normalizeRoutingSettings(current.routing),
       updated_at: new Date().toISOString(),
       updated_by: updatedBy || null,
     };
     if (supabase) {
       try {
-        const { data, error } = await supabase
-          .from('platform_settings')
-          .upsert({
-            id: 'global',
-            default_model: next.default_model,
-            admin_contact_email: next.admin_contact_email,
-            updated_at: next.updated_at,
-            updated_by: next.updated_by,
-          })
-          .select()
-          .maybeSingle();
+        const payload: Record<string, unknown> = {
+          id: 'global',
+          default_model: next.default_model,
+          admin_contact_email: next.admin_contact_email,
+          updated_at: next.updated_at,
+          updated_by: next.updated_by,
+        };
+        if (updates.routing) payload.routing = next.routing;
+        const { data, error } = await supabase.from('platform_settings').upsert(payload).select().maybeSingle();
         if (!error && data) {
           memoryStore.platformSettings = {
             default_model: data.default_model || null,
             admin_contact_email: data.admin_contact_email || null,
+            routing: normalizeRoutingSettings((data as { routing?: unknown }).routing ?? next.routing),
             updated_at: data.updated_at,
             updated_by: data.updated_by || null,
           };
@@ -2625,6 +2623,12 @@ export class DatabaseStore {
             user_id: entry.user_id || null,
             endpoint: entry.endpoint,
             model: entry.model,
+            requested_provider_id: entry.requested_provider_id || null,
+            requested_model: entry.requested_model || null,
+            selected_provider_id: entry.selected_provider_id || null,
+            selected_model: entry.selected_model || null,
+            fallback_attempts: entry.fallback_attempts ?? 0,
+            failure_category: entry.failure_category || null,
             prompt_tokens: entry.prompt_tokens || 0,
             candidate_tokens: entry.candidate_tokens || 0,
             total_tokens: entry.total_tokens || 0,
@@ -2634,9 +2638,19 @@ export class DatabaseStore {
             ip_address: entry.ip_address || null,
           };
         let { data, error } = await supabase.from('usage_logs').insert(payload).select().single();
-        if (error && payload.user_id) {
-          const { user_id: _ignored, ...withoutUser } = payload;
-          const retry = await supabase.from('usage_logs').insert(withoutUser).select().single();
+        if (error) {
+          const optionalKeys = [
+            'user_id',
+            'requested_provider_id',
+            'requested_model',
+            'selected_provider_id',
+            'selected_model',
+            'fallback_attempts',
+            'failure_category',
+          ];
+          const stripped = { ...payload };
+          for (const key of optionalKeys) delete stripped[key];
+          const retry = await supabase.from('usage_logs').insert(stripped).select().single();
           data = retry.data;
           error = retry.error;
         }

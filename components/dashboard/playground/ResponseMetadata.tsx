@@ -26,6 +26,8 @@ export const ResponseMetadata: React.FC<{
   }
   if (message.provider) parts.push(message.provider);
   if (message.model) parts.push(message.model);
+  if (message.routingReason === 'auto') parts.push('Auto');
+  if (message.routingReason === 'fallback') parts.push('Fallback');
 
   if (parts.length === 0 && !message.stopped) return null;
 

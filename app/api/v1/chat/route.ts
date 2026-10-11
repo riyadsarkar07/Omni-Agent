@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     if ('error' in parsed && parsed.error) return parsed.error;
     const { data, prepared } = parsed;
 
-    const resolved = await resolveChatAgent(auth, data.agentId, data.overrideProviderId);
+    const resolved = await resolveChatAgent(auth, data.agentId, data.auto ? undefined : data.overrideProviderId);
     if ('error' in resolved) return resolved.error;
 
     const result = await runPreparedChat({
@@ -40,6 +40,10 @@ export async function POST(req: NextRequest) {
         message: result.text,
         conversationId: result.conversationId,
         model: result.model,
+        providerId: result.providerId,
+        providerName: result.providerName,
+        routingReason: result.routingReason,
+        fallbackAttempts: result.fallbackAttempts,
         toolCalls: result.toolCallsExecuted,
         usage: {
           promptTokens: result.promptTokens,

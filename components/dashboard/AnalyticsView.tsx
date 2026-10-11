@@ -187,7 +187,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ usageSummary, acti
             <thead>
               <tr className="border-b border-white/5 bg-zinc-950/20 text-zinc-500 font-semibold text-[10px] uppercase tracking-wider">
                 <th className="py-2.5 px-4">Endpoint</th>
-                <th className="py-2.5 px-4">Model</th>
+                <th className="py-2.5 px-4">Requested</th>
+                <th className="py-2.5 px-4">Selected</th>
                 <th className="py-2.5 px-4">Status</th>
                 <th className="py-2.5 px-4">Latency</th>
                 <th className="py-2.5 px-4">Prompt Tokens</th>
@@ -203,7 +204,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ usageSummary, acti
                     <td className="py-2.5 px-4 font-sans font-medium text-zinc-200">
                       {log.endpoint}
                     </td>
-                    <td className="py-2.5 px-4 text-zinc-400">{log.model}</td>
+                    <td className="py-2.5 px-4 text-zinc-400">
+                      {log.requested_provider_id || '—'}
+                      {log.requested_model ? ` / ${log.requested_model}` : ''}
+                    </td>
+                    <td className="py-2.5 px-4 text-zinc-400">
+                      {log.selected_provider_id || '—'}
+                      {log.selected_model ? ` / ${log.selected_model}` : log.model ? ` / ${log.model}` : ''}
+                      {log.failure_category ? ` (${log.failure_category})` : ''}
+                    </td>
                     <td className="py-2.5 px-4">
                       <span
                         className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${

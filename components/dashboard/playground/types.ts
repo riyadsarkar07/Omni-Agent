@@ -20,6 +20,7 @@ export interface PlaygroundMessage {
   tokens?: number;
   model?: string;
   provider?: string;
+  routingReason?: string;
   isStreaming?: boolean;
   stopped?: boolean;
 }

@@ -26,6 +26,7 @@ import {
 import { AIProvider, ProviderCapability, ProviderKind, ConnectionStatus } from '@/lib/providers/types';
 import { PROVIDER_TYPE_OPTIONS } from '@/lib/providers/catalog';
 import { apiFetch } from '@/lib/auth/session-client';
+import { providerHealthStatus, publicHealth, type ProviderHealthStatus } from '@/lib/providers/health';
 
 const CAPABILITIES: { value: ProviderCapability; label: string; description: string }[] = [
   { value: 'TEXT', label: 'Text Generation', description: 'Core natural language completion' },
@@ -71,6 +72,27 @@ function parseHeaders(pairs: HeaderPair[]): Record<string, string> {
     out[key] = pair.value;
   }
   return out;
+}
+
+function catalogSummary(provider: AIProvider) {
+  const listed = provider.models || [];
+  const available = provider.availableModels || provider.metadata?.modelCatalog?.availableIds || [];
+  const known = Boolean(provider.catalogAvailabilityKnown ?? provider.metadata?.modelCatalog?.availabilityKnown);
+  return { listed, available, known, availableSet: new Set(available) };
+}
+
+function healthLabel(status: ProviderHealthStatus) {
+  if (status === 'healthy') return 'Healthy';
+  if (status === 'degraded') return 'Degraded';
+  if (status === 'unavailable') return 'Unavailable';
+  return 'Unknown';
+}
+
+function healthClass(status: ProviderHealthStatus) {
+  if (status === 'healthy') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+  if (status === 'degraded') return 'text-amber-300 bg-amber-500/10 border-amber-500/20';
+  if (status === 'unavailable') return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+  return 'text-zinc-400 bg-zinc-900 border-white/5';
 }
 
 export const ProvidersView: React.FC = () => {
@@ -328,10 +350,12 @@ export const ProvidersView: React.FC = () => {
     try {
       const res = await apiFetch(`/api/v1/providers/${id}/test`, { method: 'POST' });
       const data = await res.json();
-      if (data.success) {
-        showNotification(`Connection successful. Latency ${data.latencyMs}ms.`, 'success');
+      if (data.success && data.health?.status === 'healthy') {
+        showNotification(`Healthy. Latency ${data.latencyMs}ms.`, 'success');
+      } else if (data.success) {
+        showNotification(`Reachable, but not marked healthy until a completion probe succeeds. Latency ${data.latencyMs}ms.`, 'success');
       } else {
-        showNotification(`Connection failed: ${data.error || 'Check configuration'}`, 'error');
+        showNotification(`Check failed: ${data.health?.lastFailureMessage || data.error || 'Check configuration'}`, 'error');
       }
       fetchProviders();
     } catch {
@@ -347,7 +371,17 @@ export const ProvidersView: React.FC = () => {
       const res = await apiFetch(`/api/v1/providers/${id}/models`);
       const data = await res.json();
       if (data.success && data.models?.length) {
-        showNotification(`Discovered ${data.models.length} models.`, 'success');
+        if (data.availabilityKnown) {
+          showNotification(
+            `Listed ${data.listedCount ?? data.models.length} catalog models; ${data.availableCount ?? 0} marked active by the provider.`,
+            'success'
+          );
+        } else {
+          showNotification(
+            `Listed ${data.listedCount ?? data.models.length} catalog models. The provider did not report which are active.`,
+            'success'
+          );
+        }
       } else {
         showNotification('Model discovery unavailable. Enter a Model ID manually.', 'error');
       }
@@ -522,6 +556,27 @@ export const ProvidersView: React.FC = () => {
                     {provider.connectionStatus === 'Connected' ? 'Connected' : provider.connectionStatus}
                   </span>
                 </div>
+                {(() => {
+                  const health = provider.metadata?.health ? publicHealth(provider.metadata.health) : undefined;
+                  const status = providerHealthStatus(health);
+                  return (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${healthClass(status)}`}>
+                        {healthLabel(status)}
+                      </span>
+                      {health?.localUnreachable && (
+                        <span className="text-[10px] text-rose-300">Local OmniRoute unreachable</span>
+                      )}
+                      {health?.rateLimited && <span className="text-[10px] text-amber-300">Rate limited</span>}
+                      {typeof health?.catalogListed === 'number' && (
+                        <span className="text-[10px] text-zinc-500">
+                          Listed {health.catalogListed}
+                          {health.catalogAvailabilityKnown ? ` · Active ${health.catalogAvailable ?? 0}` : ' · Active unknown'}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-zinc-400">
                   <div>
@@ -552,18 +607,39 @@ export const ProvidersView: React.FC = () => {
                   ) : null}
                 </div>
 
-                {provider.models?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {provider.models.slice(0, 8).map((m) => (
-                      <span key={m} className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-300 border border-white/5">
-                        {m}
-                      </span>
-                    ))}
-                    {provider.models.length > 8 && (
-                      <span className="text-[10px] text-zinc-500 px-2 py-0.5">+{provider.models.length - 8}</span>
-                    )}
-                  </div>
-                )}
+                {provider.models?.length > 0 && (() => {
+                  const catalog = catalogSummary(provider);
+                  return (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+                        {catalog.known
+                          ? `Listed ${catalog.listed.length} · Active ${catalog.available.length}`
+                          : `Listed ${catalog.listed.length} · Active status not reported`}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {catalog.listed.slice(0, 8).map((m) => {
+                          const active = catalog.known && catalog.availableSet.has(m);
+                          return (
+                            <span
+                              key={m}
+                              className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                                active
+                                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                                  : 'bg-zinc-900 text-zinc-300 border-white/5'
+                              }`}
+                            >
+                              {m}
+                              {catalog.known ? (active ? ' · active' : ' · listed') : ''}
+                            </span>
+                          );
+                        })}
+                        {catalog.listed.length > 8 && (
+                          <span className="text-[10px] text-zinc-500 px-2 py-0.5">+{catalog.listed.length - 8} listed</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-white/5">
                   <button
@@ -572,7 +648,7 @@ export const ProvidersView: React.FC = () => {
                     className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5"
                   >
                     <Wifi className={`w-3.5 h-3.5 ${testingId === provider.id ? 'animate-pulse text-cyan-400' : ''}`} />
-                    {testingId === provider.id ? 'Testing...' : 'Test'}
+                    {testingId === provider.id ? 'Checking...' : 'Check Now'}
                   </button>
                   <button
                     onClick={() => handleOpenEdit(provider)}

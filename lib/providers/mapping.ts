@@ -1,6 +1,7 @@
 import { AIProvider, ProviderCapability, ProviderKind, ProviderMetadata, ProviderProtocol } from './types';
 import { decryptProviderSecret, hasStoredProviderSecret } from './secrets';
 import { kindFromProtocol } from './catalog';
+import { publicHealth } from './health';
 
 type RawProviderRow = Record<string, unknown> & Partial<AIProvider>;
 
@@ -44,6 +45,7 @@ export function mapRowToProvider(row: RawProviderRow, includeSecret = false): AI
   const type = kindFromProtocol(protocol, (row.type as ProviderKind) || undefined);
   const storedKey = String(row.api_key ?? row.apiKey ?? '');
   const decrypted = includeSecret ? decryptProviderSecret(storedKey) : undefined;
+  const metadata = asMetadata(row.metadata);
   return {
     id: String(row.id),
     name: String(row.name || 'Untitled Provider'),
@@ -55,6 +57,8 @@ export function mapRowToProvider(row: RawProviderRow, includeSecret = false): AI
     enabled: row.enabled !== false,
     defaultModel: String(row.default_model ?? row.defaultModel ?? ''),
     models: asStringArray(row.models),
+    availableModels: asStringArray(metadata.modelCatalog?.availableIds),
+    catalogAvailabilityKnown: Boolean(metadata.modelCatalog?.availabilityKnown),
     capabilities: asCapabilities(row.capabilities).length
       ? asCapabilities(row.capabilities)
       : ['TEXT', 'STREAMING'],
@@ -67,17 +71,21 @@ export function mapRowToProvider(row: RawProviderRow, includeSecret = false): AI
     isSystem: Boolean(row.is_system ?? row.isSystem),
     scope: (row.scope as AIProvider['scope']) || 'global',
     ownerId: (row.owner_id as string | undefined) ?? row.ownerId,
-    metadata: asMetadata(row.metadata),
+    metadata,
     created_at: (row.created_at as string | undefined) ?? row.created_at,
     updated_at: (row.updated_at as string | undefined) ?? row.updated_at,
   };
 }
 
 export function toPublicProvider(provider: AIProvider): AIProvider {
+  const health = provider.metadata?.health ? publicHealth(provider.metadata.health) : provider.metadata?.health;
   return {
     ...provider,
     apiKey: undefined,
     hasApiKey: Boolean(provider.hasApiKey),
+    metadata: provider.metadata
+      ? { ...provider.metadata, health }
+      : provider.metadata,
   };
 }
 
