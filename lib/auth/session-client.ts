@@ -37,11 +37,37 @@ export function authHeaders(extra?: HeadersInit): Headers {
   return headers;
 }
 
-export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const headers = authHeaders(init?.headers);
-  return fetch(input, {
-    ...init,
-    headers,
-    credentials: 'include',
-  });
+type ApiFetchInit = RequestInit & { timeoutMs?: number };
+
+export async function apiFetch(input: RequestInfo | URL, init?: ApiFetchInit): Promise<Response> {
+  const { timeoutMs, signal: parentSignal, headers: initHeaders, ...rest } = init || {};
+  const headers = authHeaders(initHeaders);
+  if (!timeoutMs) {
+    return fetch(input, {
+      ...rest,
+      headers,
+      credentials: 'include',
+      signal: parentSignal,
+    });
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      controller.abort();
+    } else {
+      parentSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
+  try {
+    return await fetch(input, {
+      ...rest,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }

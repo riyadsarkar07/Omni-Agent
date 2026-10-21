@@ -27,11 +27,15 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children, requireAdmin = fal
 
   useEffect(() => {
     let ignore = false;
-    apiFetch('/api/auth/me')
+    const failOpen = window.setTimeout(() => {
+      if (!ignore) setLoading(false);
+    }, 8000);
+
+    apiFetch('/api/auth/me', { timeoutMs: 8000 })
       .then(async (res) => {
-        const data = await res.json();
+        const data = await res.json().catch(() => null);
         if (ignore) return;
-        if (data.authenticated && data.user) {
+        if (data?.authenticated && data.user) {
           if (requireAdmin && data.user.role !== 'admin') {
             setDenied(true);
             setUser(data.user);
@@ -42,10 +46,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children, requireAdmin = fal
       })
       .catch(() => {})
       .finally(() => {
+        window.clearTimeout(failOpen);
         if (!ignore) setLoading(false);
       });
     return () => {
       ignore = true;
+      window.clearTimeout(failOpen);
     };
   }, [requireAdmin]);
 
